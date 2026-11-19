@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   creationTimestamp: null
   name: agents.attestation.keylime.dev
 spec:
@@ -72,7 +72,6 @@ spec:
                     description: |-
                       SecretName is the name of a secret which should contain CA certificates that should be used to verify the EK certificate of the agent if EnableVerification is set.
 
-
                       If EnableVerification is true, but SecretName is empty, then the controller will fall back to try to use the CA certificates as set with the optional KEYLIME_TPM_CERT_STORE setting.
                       NOTE: It is recommended to use a secret though. However, in cases where people do not feel comfortable to give the service account of the controller access to secrets, or want to bake in
                       the secure payloads into the controller image or mount a volume/secret into the controller for that purpose, this fallback mechanism provides a way to accomodate that.
@@ -101,7 +100,6 @@ spec:
                     description: |-
                       SecretName is the name of a secret which contents should be delivered to the agent via the Secure Payload mechanism.
                       NOTE: If there is a change in this value after the agent has been added to a verifier, this will effectively delete the agent from the verifier and add it again!
-
 
                       If EnableSecurePayload is true, but SecretName is empty, then the controller will fall back to try to use a directory as set with the optional KEYLIME_SECURE_PAYLOAD_DIR setting.
                       NOTE: It is recommended to use a secret though. However, in cases where people do not feel comfortable to give the service account of the controller access to secrets, or want to bake in
@@ -207,9 +205,8 @@ spec:
                       listening on
                     type: integer
                   aik:
-                    description: |-
-                      AIK is base64 encoded. The AIK format is TPM2B_PUBLIC from tpm2-tss.
-                      TODO: break this down
+                    description: AIK is base64 encoded. The AIK format is TPM2B_PUBLIC
+                      from tpm2-tss.
                     format: byte
                     type: string
                   ek:

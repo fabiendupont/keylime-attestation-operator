@@ -131,9 +131,9 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 - name: KEYLIME_REGISTRAR_URL
-                  value: https://10.110.133.5:8891/
+                  value: https://keylime-registrar.keylime.svc:8891/
                 - name: KEYLIME_VERIFIER_URL
-                  value: https://10.110.231.226:8881/
+                  value: https://keylime-verifier.keylime.svc:8881/
                 - name: KEYLIME_CLIENT_KEY
                   value: /var/lib/keylime/cv_ca/client-private.pem
                 - name: KEYLIME_CLIENT_CERT
@@ -146,7 +146,7 @@ spec:
                   value: /var/lib/keylime/tpm_cert_store
                 - name: KEYLIME_SECURE_PAYLOAD_DIR
                   value: /var/lib/keylime/secure_payload
-                image: quay.io/sec-eng-special/attestation_operator:v0.1.0
+                image: quay.io/fdupont-redhat/attestation-operator:v0.1.1
                 livenessProbe:
                   httpGet:
                     path: /healthz

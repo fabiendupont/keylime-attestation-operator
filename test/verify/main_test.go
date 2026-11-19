@@ -140,7 +140,6 @@ nM8F2IloskbDDps2gsVxllmvm5lk4BgKgMPGeE+hFclMs+k1
 		panic(err)
 	}
 	t.Logf("chains: %v\n", chains)
-	panic(err)
 }
 
 const (

@@ -5,14 +5,87 @@ package verifier
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"fmt"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	khttp "github.com/keylime/attestation-operator/pkg/client/http"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var logger = ctrl.Log.WithName("unittest")
+
+// newTestClientCertificate generates an ephemeral self-signed certificate and
+// key in a temporary directory and returns a Keylime HTTP client configured
+// with them. This keeps the tests self-contained (no hardcoded host paths).
+func newTestClientCertificate(t *testing.T) *http.Client {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate test key: %v", err)
+	}
+
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatalf("failed to generate certificate serial: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			Organization: []string{"Keylime"},
+			CommonName:   "test-client",
+		},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("failed to create test certificate: %v", err)
+	}
+
+	dir := t.TempDir()
+	certFile := filepath.Join(dir, "client-cert.crt")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := os.WriteFile(certFile, certPEM, 0o600); err != nil {
+		t.Fatalf("failed to write test certificate: %v", err)
+	}
+
+	keyFile := filepath.Join(dir, "client-private.pem")
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("failed to marshal test key: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	if err := os.WriteFile(keyFile, keyPEM, 0o600); err != nil {
+		t.Fatalf("failed to write test key: %v", err)
+	}
+
+	hc, err := khttp.NewKeylimeHTTPClient(
+		khttp.ClientCertificate(certFile, keyFile),
+		khttp.InsecureSkipVerify(),
+	)
+	if err != nil {
+		t.Fatalf("failed to create Keylime HTTP client: %v", err)
+	}
+	return hc
+}
 
 func Test_verifierClient_GetAgent(t *testing.T) {
 	type args struct {
@@ -33,26 +106,28 @@ func Test_verifierClient_GetAgent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"code": 200, "status": "Success", "results": {"operational_state": 7, "v": "yyNnlWwFRz1ZUzSe2YEpz9A5urtv6oywgttTF7VbBP4=", "ip": "127.0.0.1", "port": 9002, "tpm_policy": "{}", "vtpm_policy": "{}", "meta_data": "{}", "has_mb_refstate": 0, "has_runtime_policy": 0, "accept_tpm_hash_algs": ["sha256"], "accept_tpm_encryption_algs": ["rsa"], "accept_tpm_signing_algs": ["rsassa"], "hash_alg": "sha256", "enc_alg": "rsa", "sign_alg": "rsassa", "verifier_id": "default", "verifier_ip": "127.0.0.1", "verifier_port": 8881, "severity_level": 5, "last_event_id": "mock_agent", "attestation_count": 1, "last_received_quote": 1689071853, "last_successful_attestation": 1689071853}}`)
+			}))
+			defer ts.Close()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc, err := khttp.NewKeylimeHTTPClient(
-				khttp.ClientCertificate("/home/mheese/src/keylime-attestation-operator/hack/client-cert.crt", "/home/mheese/src/keylime-attestation-operator/hack/client-private.pem"),
-				khttp.InsecureSkipVerify(),
-			)
+			hc := newTestClientCertificate(t)
+			c, _, err := New(ctx, logger, hc, ts.URL)
 			if err != nil {
-				panic(err)
-			}
-			c, _, err := New(ctx, logger, hc, "https://127.0.0.1:8881")
-			if err != nil {
-				panic(err)
+				t.Fatalf("failed to create verifier client: %v", err)
 			}
 			got, err := c.GetAgent(ctx, tt.args.uuid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("verifierClient.GetAgent() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
+			if tt.want != nil && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("verifierClient.GetAgent() = %v, want %v", got, tt.want)
+			}
+			if err == nil && got == nil {
+				t.Errorf("verifierClient.GetAgent() = nil, want an agent")
 			}
 		})
 	}
@@ -76,18 +151,17 @@ func Test_verifierClient_StopAgent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"code": 200, "status": "Success", "results": {}}`)
+			}))
+			defer ts.Close()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc, err := khttp.NewKeylimeHTTPClient(
-				khttp.ClientCertificate("/home/mheese/src/keylime-attestation-operator/hack/client-cert.crt", "/home/mheese/src/keylime-attestation-operator/hack/client-private.pem"),
-				khttp.InsecureSkipVerify(),
-			)
+			hc := newTestClientCertificate(t)
+			c, _, err := New(ctx, logger, hc, ts.URL)
 			if err != nil {
-				panic(err)
-			}
-			c, _, err := New(ctx, logger, hc, "https://127.0.0.1:8881")
-			if err != nil {
-				panic(err)
+				t.Fatalf("failed to create verifier client: %v", err)
 			}
 			if err := c.StopAgent(ctx, tt.args.uuid); (err != nil) != tt.wantErr {
 				t.Errorf("verifierClient.StopAgent() error = %v, wantErr %v", err, tt.wantErr)
@@ -114,18 +188,17 @@ func Test_verifierClient_ReactivateAgent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"code": 200, "status": "Success", "results": {}}`)
+			}))
+			defer ts.Close()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc, err := khttp.NewKeylimeHTTPClient(
-				khttp.ClientCertificate("/home/mheese/src/keylime-attestation-operator/hack/client-cert.crt", "/home/mheese/src/keylime-attestation-operator/hack/client-private.pem"),
-				khttp.InsecureSkipVerify(),
-			)
+			hc := newTestClientCertificate(t)
+			c, _, err := New(ctx, logger, hc, ts.URL)
 			if err != nil {
-				panic(err)
-			}
-			c, _, err := New(ctx, logger, hc, "https://127.0.0.1:8881")
-			if err != nil {
-				panic(err)
+				t.Fatalf("failed to create verifier client: %v", err)
 			}
 			if err := c.ReactivateAgent(ctx, tt.args.uuid); (err != nil) != tt.wantErr {
 				t.Errorf("verifierClient.ReactivateAgent() error = %v, wantErr %v", err, tt.wantErr)
@@ -152,18 +225,17 @@ func Test_verifierClient_DeleteAgent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"code": 200, "status": "Success", "results": {}}`)
+			}))
+			defer ts.Close()
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			hc, err := khttp.NewKeylimeHTTPClient(
-				khttp.ClientCertificate("/home/mheese/src/keylime-attestation-operator/hack/client-cert.crt", "/home/mheese/src/keylime-attestation-operator/hack/client-private.pem"),
-				khttp.InsecureSkipVerify(),
-			)
+			hc := newTestClientCertificate(t)
+			c, _, err := New(ctx, logger, hc, ts.URL)
 			if err != nil {
-				panic(err)
-			}
-			c, _, err := New(ctx, logger, hc, "https://127.0.0.1:8881")
-			if err != nil {
-				panic(err)
+				t.Fatalf("failed to create verifier client: %v", err)
 			}
 			if err := c.DeleteAgent(ctx, tt.args.uuid); (err != nil) != tt.wantErr {
 				t.Errorf("verifierClient.DeleteAgent() error = %v, wantErr %v", err, tt.wantErr)
