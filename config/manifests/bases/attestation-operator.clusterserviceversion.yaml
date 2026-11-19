@@ -78,6 +78,6 @@ spec:
   maturity: alpha
   provider:
     name: Red Hat Inc
-  replaces: attestation-operator.v0.1.0
-  containerImage: quay.io/fdupont-redhat/attestation-operator:v0.1.1
-  version: 0.1.1
+  replaces: attestation-operator.v0.1.1
+  containerImage: quay.io/fdupont-redhat/attestation-operator:v0.1.2
+  version: 0.1.2

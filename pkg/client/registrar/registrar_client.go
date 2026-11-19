@@ -97,24 +97,26 @@ func (c *registrarClient) ListAgents(ctx context.Context) ([]string, error) {
 }
 
 type Agent struct {
-	UUID     string
-	AIK      []byte
-	EK       []byte
-	EKCert   *x509.Certificate
-	MTLSCert *x509.Certificate
-	IP       string
-	Port     uint16
-	RegCount uint
+	UUID          string
+	AIK           []byte
+	EK            []byte
+	EKCert        *x509.Certificate
+	MTLSCert      *x509.Certificate
+	SPDMCertChain []byte
+	IP            string
+	Port          uint16
+	RegCount      uint
 }
 
 type getResults struct {
-	AIK      []byte `json:"aik_tpm"`
-	EK       []byte `json:"ek_tpm"`
-	EKCert   []byte `json:"ekcert"`
-	MTLSCert string `json:"mtls_cert"`
-	IP       string `json:"ip"`
-	Port     uint16 `json:"port"`
-	RegCount uint   `json:"regcount"`
+	AIK           []byte `json:"aik_tpm"`
+	EK            []byte `json:"ek_tpm"`
+	EKCert        []byte `json:"ekcert"`
+	MTLSCert      string `json:"mtls_cert"`
+	SPDMCertChain []byte `json:"spdm_cert_chain"`
+	IP            string `json:"ip"`
+	Port          uint16 `json:"port"`
+	RegCount      uint   `json:"regcount"`
 }
 
 type get struct {
@@ -161,33 +163,49 @@ func (c *registrarClient) GetAgent(ctx context.Context, uuid string) (*Agent, er
 }
 
 func parseAgent(uuid string, resp get) (*Agent, error) {
-	ekCert, err := x509.ParseCertificate(resp.Results.EKCert)
-	if err != nil {
-		return nil, fmt.Errorf("EK cert parsing: %w", err)
+	agent := &Agent{
+		UUID:          uuid,
+		AIK:           resp.Results.AIK,
+		EK:            resp.Results.EK,
+		SPDMCertChain: resp.Results.SPDMCertChain,
+		IP:            resp.Results.IP,
+		Port:          resp.Results.Port,
+		RegCount:      resp.Results.RegCount,
 	}
 
-	mtlsCertPEM, _ := pem.Decode([]byte(resp.Results.MTLSCert))
-	if mtlsCertPEM == nil {
-		return nil, fmt.Errorf("MTLS cert is not PEM encoded")
-	}
-	if mtlsCertPEM.Type != "CERTIFICATE" {
-		return nil, fmt.Errorf("MTLS cert PEM type is not a certificate, but %s", mtlsCertPEM.Type)
-	}
-	mtlsCert, err := x509.ParseCertificate(mtlsCertPEM.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("MTLS cert parsing: %w", err)
+	// Agents attested out-of-band via SPDM register a device certificate chain
+	// instead of TPM key material; for those, the EK certificate and the mTLS
+	// certificate are optional (there is no keylime agent process to hold them).
+	spdm := len(resp.Results.SPDMCertChain) > 0
+
+	if len(resp.Results.EKCert) > 0 {
+		ekCert, err := x509.ParseCertificate(resp.Results.EKCert)
+		if err != nil {
+			return nil, fmt.Errorf("EK cert parsing: %w", err)
+		}
+		agent.EKCert = ekCert
+	} else if !spdm {
+		return nil, fmt.Errorf("EK cert parsing: no EK certificate in registrar response")
 	}
 
-	return &Agent{
-		UUID:     uuid,
-		AIK:      resp.Results.AIK,
-		EK:       resp.Results.EK,
-		EKCert:   ekCert,
-		MTLSCert: mtlsCert,
-		IP:       resp.Results.IP,
-		Port:     resp.Results.Port,
-		RegCount: resp.Results.RegCount,
-	}, nil
+	if resp.Results.MTLSCert != "" {
+		mtlsCertPEM, _ := pem.Decode([]byte(resp.Results.MTLSCert))
+		if mtlsCertPEM == nil {
+			return nil, fmt.Errorf("MTLS cert is not PEM encoded")
+		}
+		if mtlsCertPEM.Type != "CERTIFICATE" {
+			return nil, fmt.Errorf("MTLS cert PEM type is not a certificate, but %s", mtlsCertPEM.Type)
+		}
+		mtlsCert, err := x509.ParseCertificate(mtlsCertPEM.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("MTLS cert parsing: %w", err)
+		}
+		agent.MTLSCert = mtlsCert
+	} else if !spdm {
+		return nil, fmt.Errorf("MTLS cert is missing from registrar response")
+	}
+
+	return agent, nil
 }
 
 func (c *registrarClient) DeleteAgent(ctx context.Context, uuid string) error {

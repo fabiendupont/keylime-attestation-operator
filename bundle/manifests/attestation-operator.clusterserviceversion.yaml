@@ -21,10 +21,10 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-11-19T21:54:32Z"
+    createdAt: "2026-11-19T23:18:50Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
-  name: attestation-operator.v0.1.1
+  name: attestation-operator.v0.1.2
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -124,9 +124,9 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 - name: KEYLIME_REGISTRAR_URL
-                  value: https://keylime-registrar.keylime.svc:8891/
+                  value: https://keylime-keylime-registrar.keylime.svc:8891/
                 - name: KEYLIME_VERIFIER_URL
-                  value: https://keylime-verifier.keylime.svc:8881/
+                  value: https://keylime-keylime-verifier.keylime.svc:8881/
                 - name: KEYLIME_CLIENT_KEY
                   value: /var/lib/keylime/cv_ca/client-private.pem
                 - name: KEYLIME_CLIENT_CERT
@@ -139,7 +139,7 @@ spec:
                   value: /var/lib/keylime/tpm_cert_store
                 - name: KEYLIME_SECURE_PAYLOAD_DIR
                   value: /var/lib/keylime/secure_payload
-                image: quay.io/fdupont-redhat/attestation-operator:v0.1.1
+                image: quay.io/fdupont-redhat/attestation-operator:0.1.2
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -241,6 +241,6 @@ spec:
   maturity: alpha
   provider:
     name: Red Hat Inc
-  replaces: attestation-operator.v0.1.0
-  containerImage: quay.io/fdupont-redhat/attestation-operator:v0.1.1
-  version: 0.1.1
+  replaces: attestation-operator.v0.1.1
+  containerImage: quay.io/fdupont-redhat/attestation-operator:v0.1.2
+  version: 0.1.2

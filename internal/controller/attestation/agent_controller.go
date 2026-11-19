@@ -183,7 +183,8 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ct
 
 	// perform EK certificate verification
 	// this is only possible now as we have the registrar agent status now
-	if agentOrig.Spec.EKCertificateStore.EnableVerification {
+	// agents registered with an SPDM device certificate chain have no EK certificate to verify
+	if agentOrig.Spec.EKCertificateStore.EnableVerification && ragent.EKCert != nil {
 		// move the phase forward
 		agent.Status.Phase = attestationv1alpha1.AgentEKVerification
 
@@ -236,7 +237,10 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ct
 	}
 
 	// detect change in verifier and add/delete the agent to/from a verifier
-	if detectVerifierChange(&agentOrig) {
+	// out-of-band (SPDM) agents are skipped: their enrollment in the verifier is owned by the
+	// collector that drives the v3 push-mode attestation protocol, and the operator must not
+	// delete or re-add them behind its back
+	if ragent.SPDMCertChain == nil && detectVerifierChange(&agentOrig) {
 		// if the agent was part of a verifier before, delete it from there
 		if agentOrig.Status.VerifierName != "" {
 			vc, ok := r.Keylime.Verifier(agentOrig.Status.VerifierName)
@@ -310,7 +314,69 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ct
 		}
 	}
 
-	if agent.Status.VerifierName != "" {
+	if ragent.SPDMCertChain != nil {
+		// Out-of-band (SPDM) agent: report the latest v3 push-mode attestation result.
+		// The verifier to read it from is the one from the spec; when unset, fall back
+		// to the single configured verifier, if that is unambiguous.
+		verifierName := agentOrig.Spec.VerifierName
+		if verifierName == "" {
+			if names := r.Keylime.VerifierNames(); len(names) == 1 {
+				verifierName = names[0]
+			}
+		}
+		if verifierName == "" {
+			agent.Status.Phase = attestationv1alpha1.AgentUnschedulable
+			agent.Status.PhaseReason = attestationv1alpha1.InvalidVerifier
+			agent.Status.PhaseMessage = "Cannot determine the verifier to read the attestation status from: set spec.verifierName or configure exactly one verifier"
+			return ctrl.Result{
+				Requeue:      true,
+				RequeueAfter: r.ReconcileInterval,
+			}, nil
+		}
+
+		vc, ok := r.Keylime.Verifier(verifierName)
+		if !ok {
+			agent.Status.Phase = attestationv1alpha1.AgentUnschedulable
+			agent.Status.PhaseReason = attestationv1alpha1.InvalidVerifier
+			agent.Status.PhaseMessage = fmt.Sprintf("No verifier under the name of '%s' could be found", verifierName)
+			return ctrl.Result{
+				Requeue:      true,
+				RequeueAfter: r.ReconcileInterval,
+			}, nil
+		}
+
+		attestation, err := vc.GetLatestAttestation(ctx, agentOrig.Name)
+		if err != nil {
+			if http.IsNotFoundError(err) {
+				// the collector has not run an attestation cycle yet
+				agent.Status.Phase = attestationv1alpha1.AgentRegistered
+				agent.Status.PhaseReason = attestationv1alpha1.RegistrarCheckSuccess
+				agent.Status.PhaseMessage = "The agent is registered, but no attestation has been recorded by the verifier yet"
+				return ctrl.Result{
+					Requeue:      true,
+					RequeueAfter: r.ReconcileInterval,
+				}, nil
+			}
+			l.Error(err, "unable to get latest attestation from verifier")
+			agent.Status.PhaseReason = attestationv1alpha1.UnsuccessfulChecks
+			agent.Status.PhaseMessage = fmt.Sprintf("Check for the agent's latest attestation with the verifier failed: %s", err)
+			return ctrl.Result{}, err
+		}
+
+		agent.Status.Verifier = toAttestationVerifierStatus(attestation)
+		agent.Status.Phase = attestationv1alpha1.AgentVerifying
+		switch attestation.Evaluation {
+		case "pass":
+			agent.Status.PhaseReason = attestationv1alpha1.VerifierCheckSuccess
+			agent.Status.PhaseMessage = "The latest attestation passed verification"
+		case "fail":
+			agent.Status.PhaseReason = attestationv1alpha1.UnsuccessfulChecks
+			agent.Status.PhaseMessage = "The latest attestation failed verification"
+		default:
+			agent.Status.PhaseReason = attestationv1alpha1.VerifierCheckSuccess
+			agent.Status.PhaseMessage = fmt.Sprintf("The latest attestation is in progress (stage: %s)", attestation.Stage)
+		}
+	} else if agent.Status.VerifierName != "" {
 		vc, ok := r.Keylime.Verifier(agent.Status.VerifierName)
 		if !ok {
 			// this verifier can no longer be found, we'll reset the status of the verifier and reconcile
@@ -500,15 +566,63 @@ func (r *AgentReconciler) readSecurePayloadFromSecret(ctx context.Context, secre
 }
 
 func toRegistrarStatus(a *registrar.Agent) *attestationv1alpha1.RegistrarStatus {
-	return &attestationv1alpha1.RegistrarStatus{
-		AIK:       a.AIK,
-		EK:        a.EK,
-		EKCert:    a.EKCert.Raw,
-		AgentCert: a.MTLSCert.Raw,
-		AgentIP:   a.IP,
-		AgentPort: a.Port,
-		RegCount:  a.RegCount,
+	status := &attestationv1alpha1.RegistrarStatus{
+		AIK:           a.AIK,
+		EK:            a.EK,
+		SPDMCertChain: a.SPDMCertChain,
+		AgentIP:       a.IP,
+		AgentPort:     a.Port,
+		RegCount:      a.RegCount,
 	}
+	// EK and mTLS certificates are optional for agents registered with an SPDM
+	// device certificate chain instead of TPM key material
+	if a.EKCert != nil {
+		status.EKCert = a.EKCert.Raw
+	}
+	if a.MTLSCert != nil {
+		status.AgentCert = a.MTLSCert.Raw
+	}
+	return status
+}
+
+// toAttestationVerifierStatus maps the latest v3 push-mode attestation of an out-of-band
+// (SPDM) agent onto the verifier status, reusing the v2 operational state vocabulary so
+// that the Agent CR's State column stays meaningful for both attestation modes.
+func toAttestationVerifierStatus(a *verifier.Attestation) *attestationv1alpha1.VerifierStatus {
+	status := &attestationv1alpha1.VerifierStatus{
+		AttestationStage:      a.Stage,
+		AttestationEvaluation: a.Evaluation,
+	}
+
+	var received *metav1.Time
+	if a.EvidenceReceivedAt != nil {
+		t := metav1.NewTime(*a.EvidenceReceivedAt)
+		received = &t
+	}
+
+	switch {
+	case a.Evaluation == "pass":
+		status.OperationalState = verifier.GetQuote.String()
+		status.OperationalStateDescription = verifier.GetQuote.Description()
+	case a.Evaluation == "fail":
+		status.OperationalState = verifier.Failed.String()
+		status.OperationalStateDescription = verifier.Failed.Description()
+	case a.Stage == "evaluating_evidence":
+		status.OperationalState = verifier.Start.String()
+		status.OperationalStateDescription = verifier.Start.Description()
+	default: // awaiting evidence
+		status.OperationalState = verifier.Saved.String()
+		status.OperationalStateDescription = verifier.Saved.Description()
+	}
+
+	if received != nil {
+		status.LastReceivedQuote = *received
+		if a.Evaluation == "pass" {
+			status.LastSuccessfulAttestation = *received
+		}
+	}
+
+	return status
 }
 
 func toVerifierStatus(a *verifier.Agent) *attestationv1alpha1.VerifierStatus {

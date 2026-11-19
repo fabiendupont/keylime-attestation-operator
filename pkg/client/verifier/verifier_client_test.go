@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -241,5 +242,69 @@ func Test_verifierClient_DeleteAgent(t *testing.T) {
 				t.Errorf("verifierClient.DeleteAgent() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func Test_verifierClient_GetLatestAttestation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() != "/v3/agents/94c56a96-1d2f-4a08-8b6c-6f8b1e2a9d01/attestations/latest" {
+			t.Errorf("unexpected request path: %s", r.URL.EscapedPath())
+		}
+		// the verifier answers GETs of the /latest alias with 201 + Location; both
+		// 200 and 201 must be accepted
+		w.Header().Set("Location", "/v3/agents/94c56a96-1d2f-4a08-8b6c-6f8b1e2a9d01/attestations/23")
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"data": {"attributes": {"stage": "verification_complete", "evaluation": "pass", "evidence_received_at": "2026-11-19T19:54:06.391938+00:00"}}}`)
+	}))
+	defer ts.Close()
+
+	url, err := url.Parse(ts.URL)
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := &verifierClient{
+		http:              ts.Client(),
+		url:               url,
+		internalCtx:       ctx,
+		internalCtxCancel: cancel,
+	}
+
+	attestation, err := c.GetLatestAttestation(ctx, "94c56a96-1d2f-4a08-8b6c-6f8b1e2a9d01")
+	if err != nil {
+		t.Errorf("verifierClient.GetLatestAttestation() error = %v, wantErr false", err)
+		return
+	}
+	if attestation.Stage != "verification_complete" || attestation.Evaluation != "pass" {
+		t.Errorf("stage/evaluation = %s/%s, want verification_complete/pass", attestation.Stage, attestation.Evaluation)
+	}
+	if attestation.EvidenceReceivedAt == nil || attestation.EvidenceReceivedAt.Year() != 2026 {
+		t.Errorf("evidenceReceivedAt = %v, want 2026-11-19", attestation.EvidenceReceivedAt)
+	}
+}
+
+func Test_verifierClient_GetLatestAttestationNotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"errors": [{"code": "not_found"}]}`)
+	}))
+	defer ts.Close()
+
+	url, err := url.Parse(ts.URL)
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := &verifierClient{
+		http:              ts.Client(),
+		url:               url,
+		internalCtx:       ctx,
+		internalCtxCancel: cancel,
+	}
+
+	if _, err := c.GetLatestAttestation(ctx, "94c56a96-1d2f-4a08-8b6c-6f8b1e2a9d01"); !khttp.IsNotFoundError(err) {
+		t.Errorf("verifierClient.GetLatestAttestation() error = %v, want not-found", err)
 	}
 }

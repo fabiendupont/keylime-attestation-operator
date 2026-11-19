@@ -245,3 +245,63 @@ func Test_registrarClient_DeleteAgent(t *testing.T) {
 		})
 	}
 }
+
+func Test_registrarClient_GetAgentSPDM(t *testing.T) {
+	// An agent registered with an SPDM device certificate chain has no EK certificate
+	// and no mTLS certificate; parsing must succeed and expose the chain
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"code": 200, "status": "Success", "results": {"aik_tpm": "", "ek_tpm": "", "spdm_cert_chain": "BGgDAAKAbgM=", "ip": "10.244.0.166", "port": 0, "regcount": 1}}`)
+	}))
+	defer ts.Close()
+
+	url, err := url.Parse(ts.URL)
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := &registrarClient{
+		http:              ts.Client(),
+		url:               url,
+		internalCtx:       ctx,
+		internalCtxCancel: cancel,
+	}
+
+	agent, err := c.GetAgent(ctx, "94c56a96-1d2f-4a08-8b6c-6f8b1e2a9d01")
+	if err != nil {
+		t.Errorf("registrarClient.GetAgent() error = %v, wantErr false", err)
+		return
+	}
+	if len(agent.SPDMCertChain) != 8 {
+		t.Errorf("SPDMCertChain = %v, want 8 bytes", agent.SPDMCertChain)
+	}
+	if agent.EKCert != nil || agent.MTLSCert != nil {
+		t.Errorf("EKCert/MTLSCert should be nil for an SPDM-only agent")
+	}
+}
+
+func Test_registrarClient_GetAgentNoIdentity(t *testing.T) {
+	// An agent without EK certificate, mTLS certificate and SPDM chain is malformed
+	// and must still be rejected
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"code": 200, "status": "Success", "results": {"aik_tpm": "", "ek_tpm": "", "ip": "10.244.0.166", "port": 0, "regcount": 1}}`)
+	}))
+	defer ts.Close()
+
+	url, err := url.Parse(ts.URL)
+	if err != nil {
+		panic(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := &registrarClient{
+		http:              ts.Client(),
+		url:               url,
+		internalCtx:       ctx,
+		internalCtxCancel: cancel,
+	}
+
+	if _, err := c.GetAgent(ctx, "94c56a96-1d2f-4a08-8b6c-6f8b1e2a9d01"); err == nil {
+		t.Errorf("registrarClient.GetAgent() error = nil, wantErr true")
+	}
+}

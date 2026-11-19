@@ -188,16 +188,27 @@ type RegistrarStatus struct {
 	AgentPort uint16 `json:"agentPort,omitempty"`
 	// RegCount is the registration counter
 	RegCount uint `json:"regcount,omitempty"`
+	// SPDMCertChain is the DMTF DSP0274 device certificate chain (Base64 of the length-prefixed
+	// blob, leaf first) if the agent was registered with an SPDM device identity instead of TPM
+	// key material. Such agents are attested out-of-band (for example via Redfish SPDM
+	// measurements collected by a collector) rather than by an in-band keylime agent process.
+	SPDMCertChain []byte `json:"spdmCertChain,omitempty"`
 }
 
 // VerifierStatus reflects the status of an agent in the verifier
 type VerifierStatus struct {
 	OperationalState            string             `json:"operationalState,omitempty"`
 	OperationalStateDescription string             `json:"operationalStateDescription,omitempty"`
-	V                           []byte             `json:"v,omitempty"`
-	TPMPolicy                   *TPMPolicy         `json:"tpmPolicy,omitempty"`
-	VTPMPolicy                  *TPMPolicy         `json:"vtpmPolicy,omitempty"`
-	MetaData                    string             `json:"metadata,omitempty"`
+	// AttestationStage and AttestationEvaluation reflect the agent's latest attestation as
+	// reported by the verifier's v3 push-mode attestation API. They are only populated for
+	// agents attested out-of-band (SPDM); in-band agents are reflected via the operational
+	// state as reported by the v2 polling API.
+	AttestationStage      string     `json:"attestationStage,omitempty"`
+	AttestationEvaluation string     `json:"attestationEvaluation,omitempty"`
+	V                     []byte     `json:"v,omitempty"`
+	TPMPolicy             *TPMPolicy `json:"tpmPolicy,omitempty"`
+	VTPMPolicy            *TPMPolicy `json:"vtpmPolicy,omitempty"`
+	MetaData              string     `json:"metadata,omitempty"`
 	HasMBRefState               bool               `json:"hasMBRefState"`
 	HasRuntimePolicy            bool               `json:"hasRuntimePolicy"`
 	AcceptTPMHashAlgs           []TPMHashAlg       `json:"acceptTPMHashAlgs,omitempty"`

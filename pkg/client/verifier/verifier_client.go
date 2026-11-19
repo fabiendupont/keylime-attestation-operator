@@ -565,6 +565,7 @@ func toAgentRequestPostBody(r *AddAgentRequest) ([]byte, error) {
 
 type Client interface {
 	GetAgent(ctx context.Context, uuid string) (*Agent, error)
+	GetLatestAttestation(ctx context.Context, uuid string) (*Attestation, error)
 	AddAgent(ctx context.Context, uuid string, agentRequest *AddAgentRequest) error
 	DeleteAgent(ctx context.Context, uuid string) error
 	StopAgent(ctx context.Context, uuid string) error
@@ -637,6 +638,81 @@ func (c *verifierClient) GetAgent(ctx context.Context, uuid string) (*Agent, err
 	}
 
 	return parseAgent(&resp.Results)
+}
+
+// Attestation reflects the state of an agent's latest attestation as reported by the verifier's
+// v3 push-mode attestation API. Out-of-band agents (for example those attested via SPDM through a
+// collector) are driven through this API instead of the v2 polling API.
+type Attestation struct {
+	// Stage is one of "awaiting_evidence", "evaluating_evidence" or "verification_complete"
+	Stage string
+	// Evaluation is one of "pending", "pass" or "fail"
+	Evaluation string
+	// EvidenceReceivedAt is the time the verifier received the latest evidence
+	EvidenceReceivedAt *time.Time
+}
+
+type attestationAttributes struct {
+	Stage              string `json:"stage"`
+	Evaluation         string `json:"evaluation"`
+	EvidenceReceivedAt string `json:"evidence_received_at"`
+}
+
+type getAttestation struct {
+	Attributes attestationAttributes `json:"attributes"`
+}
+
+// GetLatestAttestation implements GET /v3/agents/{agent_id}/attestations/latest
+// https://keylime.readthedocs.io/en/latest/rest_apis.html#get--v3-agents-agent_id-attestations-latest
+func (c *verifierClient) GetLatestAttestation(ctx context.Context, uuid string) (*Attestation, error) {
+	u := khttp.CloneURL(c.url)
+	reqPath, err := url.JoinPath(u.Path, "v3", "agents", uuid, "attestations", "latest")
+	if err != nil {
+		return nil, err
+	}
+	u.Path = reqPath
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Accept", "application/vnd.api+json")
+
+	httpResp, err := c.http.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResp.Body.Close()
+
+	// The verifier historically answered GETs of the /latest alias with 201 (Created) plus a
+	// Location header pointing at the canonical /attestations/{index} resource; accept both
+	if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusCreated {
+		return nil, khttp.NewHTTPErrorFromBody(httpResp)
+	}
+
+	var resp struct {
+		Data getAttestation `json:"data"`
+	}
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, err
+	}
+
+	attestation := &Attestation{
+		Stage:      resp.Data.Attributes.Stage,
+		Evaluation: resp.Data.Attributes.Evaluation,
+	}
+
+	// The verifier renders timestamps in Python's isoformat() (microsecond precision, numeric
+	// UTC offset), which time.RFC3339 parsing accepts
+	if resp.Data.Attributes.EvidenceReceivedAt != "" {
+		t, err := time.Parse(time.RFC3339, resp.Data.Attributes.EvidenceReceivedAt)
+		if err != nil {
+			return nil, fmt.Errorf("attestation evidence_received_at parsing: %w", err)
+		}
+		attestation.EvidenceReceivedAt = &t
+	}
+
+	return attestation, nil
 }
 
 // DeleteAgent implements https://keylime.readthedocs.io/en/latest/rest_apis.html#delete--v2.1-agents-agent_id-UUID
