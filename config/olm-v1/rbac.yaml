@@ -57,6 +57,20 @@ rules:
       - apps
     resources:
       - deployments
+      - statefulsets
+      - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
     verbs:
       - get
       - list
@@ -105,6 +119,7 @@ rules:
       - attestation.keylime.dev
     resources:
       - agents
+      - keylimes
     verbs:
       - create
       - delete
@@ -117,12 +132,14 @@ rules:
       - attestation.keylime.dev
     resources:
       - agents/finalizers
+      - keylimes/finalizers
     verbs:
       - update
   - apiGroups:
       - attestation.keylime.dev
     resources:
       - agents/status
+      - keylimes/status
     verbs:
       - get
       - patch

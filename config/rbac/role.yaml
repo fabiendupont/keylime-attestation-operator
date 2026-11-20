@@ -7,16 +7,45 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - pods
+  - configmaps
+  - persistentvolumeclaims
   - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
   verbs:
   - get
   - list
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  - deployments
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - attestation.keylime.dev
   resources:
   - agents
+  - keylimes
   verbs:
   - create
   - delete
@@ -29,12 +58,14 @@ rules:
   - attestation.keylime.dev
   resources:
   - agents/finalizers
+  - keylimes/finalizers
   verbs:
   - update
 - apiGroups:
   - attestation.keylime.dev
   resources:
   - agents/status
+  - keylimes/status
   verbs:
   - get
   - patch

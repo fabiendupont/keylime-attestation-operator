@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/attestation.keylime.dev_agents.yaml
+- bases/attestation.keylime.dev_keylimes.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

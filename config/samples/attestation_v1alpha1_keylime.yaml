@@ -1,0 +1,22 @@
+apiVersion: attestation.keylime.dev/v1alpha1
+kind: Keylime
+metadata:
+  name: keylime
+spec:
+  # Optional: bring your own CA (secret with keys "ca.crt" and "ca.key") so
+  # that existing client certificates keep working; leave unset to let the
+  # operator generate one.
+  # tls:
+  #   caSecretRef: my-keylime-ca
+  #   trustedClientCASecretRefs:
+  #     - secretName: legacy-ca
+  #       key: cacert.crt
+  database:
+    type: sqlite
+  verifier:
+    replicas: 1
+    storageSize: 1Gi
+  registrar:
+    storageSize: 1Gi
+  agent:
+    enabled: false

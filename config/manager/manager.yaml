@@ -58,6 +58,9 @@ spec:
         args:
         - --leader-elect
         image: controller:latest
+        # the operator image tag is mutable across same-version reinstalls
+        # (e.g. on clusters with a RAM-backed image store); always re-resolve it
+        imagePullPolicy: Always
         name: manager
         securityContext:
           allowPrivilegeEscalation: false

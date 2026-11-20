@@ -197,31 +197,31 @@ type RegistrarStatus struct {
 
 // VerifierStatus reflects the status of an agent in the verifier
 type VerifierStatus struct {
-	OperationalState            string             `json:"operationalState,omitempty"`
-	OperationalStateDescription string             `json:"operationalStateDescription,omitempty"`
+	OperationalState            string `json:"operationalState,omitempty"`
+	OperationalStateDescription string `json:"operationalStateDescription,omitempty"`
 	// AttestationStage and AttestationEvaluation reflect the agent's latest attestation as
 	// reported by the verifier's v3 push-mode attestation API. They are only populated for
 	// agents attested out-of-band (SPDM); in-band agents are reflected via the operational
 	// state as reported by the v2 polling API.
-	AttestationStage      string     `json:"attestationStage,omitempty"`
-	AttestationEvaluation string     `json:"attestationEvaluation,omitempty"`
-	V                     []byte     `json:"v,omitempty"`
-	TPMPolicy             *TPMPolicy `json:"tpmPolicy,omitempty"`
-	VTPMPolicy            *TPMPolicy `json:"vtpmPolicy,omitempty"`
-	MetaData              string     `json:"metadata,omitempty"`
-	HasMBRefState               bool               `json:"hasMBRefState"`
-	HasRuntimePolicy            bool               `json:"hasRuntimePolicy"`
-	AcceptTPMHashAlgs           []TPMHashAlg       `json:"acceptTPMHashAlgs,omitempty"`
-	AcceptTPMEncryptionAlgs     []TPMEncryptionAlg `json:"acceptTPMEncAlgs,omitempty"`
-	AcceptTPMSigningAlgs        []TPMSigningAlg    `json:"acceptTPMSignAlgs,omitempty"`
-	HashAlg                     TPMHashAlg         `json:"hashAlg,omitempty"`
-	EncryptionAlg               TPMEncryptionAlg   `json:"encAlg,omitempty"`
-	SigningAlg                  TPMSigningAlg      `json:"signAlg,omitempty"`
-	SeverityLevel               uint16             `json:"severityLevel,omitempty"`
-	LastEventID                 string             `json:"lastEventID,omitempty"`
-	AttestationCount            uint               `json:"attestationCount,omitempty"`
-	LastReceivedQuote           metav1.Time        `json:"lastReceivedQuote,omitempty"`
-	LastSuccessfulAttestation   metav1.Time        `json:"lastSuccessfulAttestation,omitempty"`
+	AttestationStage          string             `json:"attestationStage,omitempty"`
+	AttestationEvaluation     string             `json:"attestationEvaluation,omitempty"`
+	V                         []byte             `json:"v,omitempty"`
+	TPMPolicy                 *TPMPolicy         `json:"tpmPolicy,omitempty"`
+	VTPMPolicy                *TPMPolicy         `json:"vtpmPolicy,omitempty"`
+	MetaData                  string             `json:"metadata,omitempty"`
+	HasMBRefState             bool               `json:"hasMBRefState"`
+	HasRuntimePolicy          bool               `json:"hasRuntimePolicy"`
+	AcceptTPMHashAlgs         []TPMHashAlg       `json:"acceptTPMHashAlgs,omitempty"`
+	AcceptTPMEncryptionAlgs   []TPMEncryptionAlg `json:"acceptTPMEncAlgs,omitempty"`
+	AcceptTPMSigningAlgs      []TPMSigningAlg    `json:"acceptTPMSignAlgs,omitempty"`
+	HashAlg                   TPMHashAlg         `json:"hashAlg,omitempty"`
+	EncryptionAlg             TPMEncryptionAlg   `json:"encAlg,omitempty"`
+	SigningAlg                TPMSigningAlg      `json:"signAlg,omitempty"`
+	SeverityLevel             uint16             `json:"severityLevel,omitempty"`
+	LastEventID               string             `json:"lastEventID,omitempty"`
+	AttestationCount          uint               `json:"attestationCount,omitempty"`
+	LastReceivedQuote         metav1.Time        `json:"lastReceivedQuote,omitempty"`
+	LastSuccessfulAttestation metav1.Time        `json:"lastSuccessfulAttestation,omitempty"`
 }
 
 //+kubebuilder:object:root=true

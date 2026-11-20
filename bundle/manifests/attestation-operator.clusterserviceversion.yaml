@@ -18,10 +18,32 @@ metadata:
             "name": "agent-sample"
           },
           "spec": null
+        },
+        {
+          "apiVersion": "attestation.keylime.dev/v1alpha1",
+          "kind": "Keylime",
+          "metadata": {
+            "name": "keylime"
+          },
+          "spec": {
+            "agent": {
+              "enabled": false
+            },
+            "database": {
+              "type": "sqlite"
+            },
+            "registrar": {
+              "storageSize": "1Gi"
+            },
+            "verifier": {
+              "replicas": 1,
+              "storageSize": "1Gi"
+            }
+          }
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-11-20T11:17:56Z"
+    createdAt: "2026-11-20T13:52:00Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: attestation-operator.v0.2.0
@@ -32,6 +54,9 @@ spec:
     owned:
     - kind: Agent
       name: agents.attestation.keylime.dev
+      version: v1alpha1
+    - kind: Keylime
+      name: keylimes.attestation.keylime.dev
       version: v1alpha1
   description: Operator SDK based Attestation Operator
   displayName: osdk-attestation-operator
@@ -45,16 +70,45 @@ spec:
         - apiGroups:
           - ""
           resources:
-          - pods
+          - configmaps
+          - persistentvolumeclaims
           - secrets
+          - services
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - pods
           verbs:
           - get
           - list
           - watch
         - apiGroups:
+          - apps
+          resources:
+          - daemonsets
+          - deployments
+          - statefulsets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - attestation.keylime.dev
           resources:
           - agents
+          - keylimes
           verbs:
           - create
           - delete
@@ -67,12 +121,14 @@ spec:
           - attestation.keylime.dev
           resources:
           - agents/finalizers
+          - keylimes/finalizers
           verbs:
           - update
         - apiGroups:
           - attestation.keylime.dev
           resources:
           - agents/status
+          - keylimes/status
           verbs:
           - get
           - patch
@@ -124,9 +180,9 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 - name: KEYLIME_REGISTRAR_URL
-                  value: https://keylime-keylime-registrar.keylime.svc:8891/
+                  value: https://keylime-registrar.keylime.svc:8891/
                 - name: KEYLIME_VERIFIER_URL
-                  value: https://keylime-keylime-verifier.keylime.svc:8881/
+                  value: https://keylime-verifier.keylime.svc:8881/
                 - name: KEYLIME_CLIENT_KEY
                   value: /var/lib/keylime/cv_ca/client-private.pem
                 - name: KEYLIME_CLIENT_CERT
@@ -140,6 +196,7 @@ spec:
                 - name: KEYLIME_SECURE_PAYLOAD_DIR
                   value: /var/lib/keylime/secure_payload
                 image: quay.io/fdupont-redhat/attestation-operator:0.2.0
+                imagePullPolicy: Always
                 livenessProbe:
                   httpGet:
                     path: /healthz

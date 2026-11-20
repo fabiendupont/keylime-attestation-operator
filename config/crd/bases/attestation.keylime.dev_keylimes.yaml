@@ -1,0 +1,380 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: keylimes.attestation.keylime.dev
+spec:
+  group: attestation.keylime.dev
+  names:
+    kind: Keylime
+    listKind: KeylimeList
+    plural: keylimes
+    singular: keylime
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.verifierService
+      name: Verifier
+      type: string
+    - jsonPath: .status.registrarService
+      name: Registrar
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.caFingerprint
+      name: CA Fingerprint
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Keylime is the Schema for the keylimes API. It deploys and configures the
+          keylime verifier, registrar and (optionally) agent for one trust domain.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: KeylimeSpec defines the desired state of Keylime
+            properties:
+              agent:
+                description: Agent contains the configuration of the keylime agent
+                  DaemonSet.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled deploys the keylime agent as a DaemonSet. Disabled by default:
+                      attesting in-band Kubernetes nodes is opt-in, and agents that live
+                      outside the cluster register themselves with the registrar.
+                    type: boolean
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector restricts the agent DaemonSet to a pool
+                      of nodes.
+                    type: object
+                  tolerations:
+                    description: Tolerations are tolerations for the agent DaemonSet
+                      pods.
+                    items:
+                      description: |-
+                        The pod this Toleration is attached to tolerates any taint that matches
+                        the triple <key,value,effect> using the matching operator <operator>.
+                      properties:
+                        effect:
+                          description: |-
+                            Effect indicates the taint effect to match. Empty means match all taint effects.
+                            When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: |-
+                            Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                            If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                          type: string
+                        operator:
+                          description: |-
+                            Operator represents a key's relationship to the value.
+                            Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                            Exists is equivalent to wildcard for value, so that a pod can
+                            tolerate all taints of a particular category.
+                            Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                          type: string
+                        tolerationSeconds:
+                          description: |-
+                            TolerationSeconds represents the period of time the toleration (which must be
+                            of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                            it is not set, which means tolerate the taint forever (do not evict). Zero and
+                            negative values will be treated as 0 (evict immediately) by the system.
+                          format: int64
+                          type: integer
+                        value:
+                          description: |-
+                            Value is the taint value the toleration matches to.
+                            If the operator is Exists, the value should be empty, otherwise just a regular string.
+                          type: string
+                      type: object
+                    type: array
+                type: object
+              appraisal:
+                description: Appraisal contains the verifier's CoRIM-based appraisal
+                  configuration.
+                properties:
+                  corim:
+                    description: |-
+                      CORIM is a secret or configmap containing the signed CoRIM manifest to
+                      appraise devices against (verifier/spdm_corim). The manifest must be
+                      stored under the key "corim.cbor".
+                    properties:
+                      configMapName:
+                        description: ConfigMapName is the name of a configmap holding
+                          the trust store contents.
+                        type: string
+                      secretName:
+                        description: SecretName is the name of a secret holding the
+                          trust store contents.
+                        type: string
+                    type: object
+                type: object
+              database:
+                default:
+                  type: sqlite
+                description: Database contains the database configuration for the
+                  verifier and the registrar.
+                properties:
+                  external:
+                    description: |-
+                      External defines the secret holding the SQLAlchemy URLs when Type is "external".
+                      The secret must contain the keys "verifier-url" and "registrar-url".
+                    properties:
+                      secretRef:
+                        description: SecretRef is the name of a secret in the same
+                          namespace as the Keylime CR.
+                        type: string
+                    required:
+                    - secretRef
+                    type: object
+                  type:
+                    default: sqlite
+                    description: |-
+                      Type selects between an operator-managed SQLite database on a persistent
+                      volume (default) and an external database.
+                    enum:
+                    - sqlite
+                    - external
+                    type: string
+                type: object
+              images:
+                description: Images contains the container images used for the keylime
+                  components.
+                properties:
+                  agentImage:
+                    default: quay.io/keylime/keylime_agent:master
+                    description: AgentImage is the container image for the keylime
+                      agent.
+                    type: string
+                  registrarImage:
+                    default: quay.io/fdupont-redhat/keylime-registrar:master-oob
+                    description: RegistrarImage is the container image for the keylime
+                      registrar.
+                    type: string
+                  verifierImage:
+                    default: quay.io/fdupont-redhat/keylime-verifier:master-oob
+                    description: VerifierImage is the container image for the keylime
+                      verifier.
+                    type: string
+                type: object
+              registrar:
+                description: Registrar contains the configuration of the keylime registrar.
+                properties:
+                  storageSize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 1Gi
+                    description: |-
+                      StorageSize is the size of the persistent volume holding the registrar
+                      database (only used with the SQLite database type).
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+              tls:
+                description: TLS contains the PKI configuration for the keylime components.
+                properties:
+                  caSecretRef:
+                    description: |-
+                      CASecretRef is the name of a secret in the same namespace as the Keylime
+                      CR containing the certificate authority to sign the server certificates
+                      with: key "ca.crt" holds the CA certificate (PEM) and key "ca.key" holds
+                      the CA private key (PEM). If empty, the operator generates its own CA.
+                      Reusing an existing CA means existing client certificates keep working.
+                    type: string
+                  trustedClientCASecretRefs:
+                    description: |-
+                      TrustedClientCASecretRefs lists secrets (name and key of a PEM CA
+                      certificate) whose client certificates should additionally be accepted
+                      by the verifier and the registrar, next to the CA above. This allows
+                      trusting e.g. a legacy CA during a migration.
+                    items:
+                      description: KeylimeTrustedClientCA references a single CA certificate
+                        inside a secret.
+                      properties:
+                        key:
+                          description: Key is the key of the CA certificate (PEM)
+                            inside the secret.
+                          type: string
+                        secretName:
+                          description: SecretName is the name of the secret holding
+                            the CA certificate.
+                          type: string
+                      required:
+                      - key
+                      - secretName
+                      type: object
+                    type: array
+                type: object
+              trustStores:
+                description: |-
+                  TrustStores contains references to the certificate stores used to verify
+                  device identities and appraisal material (mounted into the verifier).
+                properties:
+                  corimSigners:
+                    description: |-
+                      CORIMSigners is a secret or configmap with the trusted CoRIM signer
+                      certificates, mounted into the verifier (verifier/spdm_corim_signers).
+                    properties:
+                      configMapName:
+                        description: ConfigMapName is the name of a configmap holding
+                          the trust store contents.
+                        type: string
+                      secretName:
+                        description: SecretName is the name of a secret holding the
+                          trust store contents.
+                        type: string
+                    type: object
+                  spdmCertStore:
+                    description: |-
+                      SPDMCertStore is a secret or configmap with the trusted SPDM device
+                      certificate chain CAs, mounted into the verifier (registrar/spdm_cert_store).
+                    properties:
+                      configMapName:
+                        description: ConfigMapName is the name of a configmap holding
+                          the trust store contents.
+                        type: string
+                      secretName:
+                        description: SecretName is the name of a secret holding the
+                          trust store contents.
+                        type: string
+                    type: object
+                  tpmCertStore:
+                    description: |-
+                      TPMCertStore is a secret or configmap with the trusted TPM EK/IDevID/IAK
+                      CA certificates, mounted into the verifier (verifier/tpm_cert_store).
+                    properties:
+                      configMapName:
+                        description: ConfigMapName is the name of a configmap holding
+                          the trust store contents.
+                        type: string
+                      secretName:
+                        description: SecretName is the name of a secret holding the
+                          trust store contents.
+                        type: string
+                    type: object
+                type: object
+              verifier:
+                description: Verifier contains the configuration of the keylime verifier.
+                properties:
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of verifier pods. Note that with SQLite only one
+                      replica is supported.
+                    format: int32
+                    type: integer
+                  storageSize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 1Gi
+                    description: |-
+                      StorageSize is the size of the persistent volume holding the verifier
+                      database (only used with the SQLite database type).
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+            type: object
+          status:
+            description: KeylimeStatus defines the observed state of Keylime
+            properties:
+              caFingerprint:
+                description: CAFingerprint is the SHA-256 fingerprint of the certificate
+                  authority in use.
+                type: string
+              conditions:
+                description: Conditions represent the per-operand readiness of the
+                  deployment.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              registrarService:
+                description: RegistrarService is the URL under which the registrar's
+                  TLS REST API can be reached.
+                type: string
+              verifierService:
+                description: VerifierService is the URL under which the verifier's
+                  REST API can be reached.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
