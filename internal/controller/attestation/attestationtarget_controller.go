@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -63,12 +64,18 @@ type AttestationTargetReconciler struct {
 	// Mapper is used to detect whether the BaremetalHost CRDs are
 	// installed (for the light MachineAPI integration).
 	Mapper meta.RESTMapper
+	// Recorder emits Kubernetes Events on the mapped nodes whenever the
+	// AttestationFailed node condition is set or cleared.
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=attestation.keylime.dev,resources=attestationtargets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=attestation.keylime.dev,resources=attestationtargets/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=attestation.keylime.dev,resources=attestationtargets/finalizers,verbs=update
 //+kubebuilder:rbac:groups=metal3.io,resources=baremetalhosts,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;patch
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile moves the cluster towards the desired state of an
 // AttestationTarget CR: a collector Deployment and its swtpm state PVC, a
@@ -171,7 +178,8 @@ func (r *AttestationTargetReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// light MachineAPI integration: match the BMC against BaremetalHosts
-	// when the CRDs are installed (skipped silently otherwise)
+	// when the CRDs are installed (skipped silently otherwise), falling
+	// back to the manual spec.nodes mapping
 	if err := r.reconcileMachineMapping(ctx, &target); err != nil {
 		// the mapping is informational only: do not fail the reconcile
 		logf.FromContext(ctx).Error(err, "BaremetalHost mapping failed")
@@ -179,15 +187,22 @@ func (r *AttestationTargetReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			Available: false,
 			Reason:    fmt.Sprintf("BaremetalHost mapping failed: %v", err),
 		}
+		applyManualMapping(&target)
 	}
 
 	// mirror the Agent CR the collector feeds into the status
 	r.mirrorAgent(ctx, &target)
 
+	// compute the target's health from the mirrored attestation state and
+	// set/clear the AttestationFailed node condition on the mapped nodes
+	r.reconcileNodeConditions(ctx, &target)
+
 	// conditions from the observed state
 	reconcileErr := r.updateTargetConditions(ctx, &target)
 
-	return ctrl.Result{}, r.updateStatus(ctx, &target, reconcileErr)
+	// requeue on a timer of our own so staleness is detected even when no
+	// watched resource changes
+	return ctrl.Result{RequeueAfter: recheckInterval(&target)}, r.updateStatus(ctx, &target, reconcileErr)
 }
 
 const keylimeRetryInterval = 10 * time.Second
@@ -360,8 +375,19 @@ var baremetalHostGVK = schema.GroupVersionKind{Group: "metal3.io", Version: "v1a
 // BaremetalHosts of the cluster and records the result in the status. When
 // the BaremetalHost CRDs are not installed (e.g. on a single-node cluster
 // without any bare-metal workers) the mapping is marked unavailable and the
-// reconcile continues.
+// reconcile continues; the manual spec.nodes fallback is then applied so
+// that the mapping can still resolve nodes.
 func (r *AttestationTargetReconciler) reconcileMachineMapping(ctx context.Context, target *attestationv1alpha1.AttestationTarget) error {
+	if err := r.reconcileBMHMapping(ctx, target); err != nil {
+		return err
+	}
+	applyManualMapping(target)
+	return nil
+}
+
+// reconcileBMHMapping is the MachineAPI part of the mapping: matching the
+// target's BMC host against the cluster's BaremetalHosts.
+func (r *AttestationTargetReconciler) reconcileBMHMapping(ctx context.Context, target *attestationv1alpha1.AttestationTarget) error {
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(baremetalHostGVK)
 	if err := r.List(ctx, list); err != nil {
@@ -396,9 +422,36 @@ func (r *AttestationTargetReconciler) reconcileMachineMapping(ctx context.Contex
 	}
 	target.Status.MachineMapping = &attestationv1alpha1.MachineMappingStatus{
 		Available: true,
+		Source:    mappingSourceMachineAPI,
 		NodeRefs:  nodeRefs,
 	}
 	return nil
+}
+
+// applyManualMapping resolves the mapping via the admin-provided
+// spec.nodes fallback when the MachineAPI mapping yielded no node, so that
+// attestation targets on clusters without the MachineAPI (management
+// clusters attesting externally-managed bare metal) still map to nodes.
+func applyManualMapping(target *attestationv1alpha1.AttestationTarget) {
+	if len(target.Spec.Nodes) == 0 {
+		return
+	}
+	if mapping := target.Status.MachineMapping; mapping != nil {
+		for _, ref := range mapping.NodeRefs {
+			if ref.Node != "" {
+				return // the MachineAPI mapping already resolved nodes
+			}
+		}
+	}
+	nodeRefs := make([]attestationv1alpha1.AttestationNodeRef, 0, len(target.Spec.Nodes))
+	for _, node := range target.Spec.Nodes {
+		nodeRefs = append(nodeRefs, attestationv1alpha1.AttestationNodeRef{Node: node})
+	}
+	target.Status.MachineMapping = &attestationv1alpha1.MachineMappingStatus{
+		Available: true,
+		Source:    mappingSourceManual,
+		NodeRefs:  nodeRefs,
+	}
 }
 
 // bmhNodeName resolves the node provisioned from a BaremetalHost when it is
@@ -430,10 +483,12 @@ func (r *AttestationTargetReconciler) mirrorAgent(ctx context.Context, target *a
 	target.Status.VerifierState = ""
 	target.Status.AttestationStage = ""
 	target.Status.AttestationEvaluation = ""
+	target.Status.Components = nil
 	if agent.Status.Verifier != nil {
 		target.Status.VerifierState = agent.Status.Verifier.OperationalState
 		target.Status.AttestationStage = agent.Status.Verifier.AttestationStage
 		target.Status.AttestationEvaluation = agent.Status.Verifier.AttestationEvaluation
+		target.Status.Components = agent.Status.Verifier.AttestationComponents
 		if !agent.Status.Verifier.LastSuccessfulAttestation.IsZero() {
 			successful := agent.Status.Verifier.LastSuccessfulAttestation
 			// a new successful attestation means the collector completed a
@@ -545,6 +600,9 @@ func (r *AttestationTargetReconciler) updateStatus(ctx context.Context, target *
 // attestation progress into the target status) and the Keylime CRs (whose
 // service endpoints and CA the collectors depend on).
 func (r *AttestationTargetReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorderFor("attestation-operator")
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&attestationv1alpha1.AttestationTarget{}).
 		Owns(&appsv1.Deployment{}).

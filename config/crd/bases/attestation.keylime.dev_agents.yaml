@@ -251,6 +251,15 @@ spec:
                     items:
                       type: string
                     type: array
+                  attestationComponents:
+                    description: |-
+                      AttestationComponents lists the component IDs covered by the latest
+                      out-of-band attestation, from the evidence items' data.meta.component_id.
+                      The v3 API reports only an attestation-level verdict, so these are the
+                      attested components, not the failing ones.
+                    items:
+                      type: string
+                    type: array
                   attestationCount:
                     type: integer
                   attestationEvaluation:

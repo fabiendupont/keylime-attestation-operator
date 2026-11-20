@@ -254,7 +254,7 @@ func Test_verifierClient_GetLatestAttestation(t *testing.T) {
 		// 200 and 201 must be accepted
 		w.Header().Set("Location", "/v3/agents/94c56a96-1d2f-4a08-8b6c-6f8b1e2a9d01/attestations/23")
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprint(w, `{"data": {"attributes": {"stage": "verification_complete", "evaluation": "pass", "evidence_received_at": "2026-11-19T19:54:06.391938+00:00"}}}`)
+		fmt.Fprint(w, `{"data": {"attributes": {"stage": "verification_complete", "evaluation": "pass", "evidence_received_at": "2026-11-19T19:54:06.391938+00:00", "evidence": [{"evidence_class": "certification", "evidence_type": "spdm_measurements", "data": {"message": "Zm9v", "signature": "YmFy", "meta": {"spdm_cert_chain": "YXph", "hash_algorithm": "sha384", "component_id": "ci-0"}}}, {"evidence_class": "certification", "evidence_type": "spdm_measurements", "data": {"meta": {"component_id": "ci-1"}}}]}}}`)
 	}))
 	defer ts.Close()
 
@@ -281,6 +281,10 @@ func Test_verifierClient_GetLatestAttestation(t *testing.T) {
 	}
 	if attestation.EvidenceReceivedAt == nil || attestation.EvidenceReceivedAt.Year() != 2026 {
 		t.Errorf("evidenceReceivedAt = %v, want 2026-11-19", attestation.EvidenceReceivedAt)
+	}
+	// the evidence items' data.meta.component_id list names the attested components
+	if len(attestation.Components) != 2 || attestation.Components[0] != "ci-0" || attestation.Components[1] != "ci-1" {
+		t.Errorf("components = %v, want [ci-0 ci-1]", attestation.Components)
 	}
 }
 

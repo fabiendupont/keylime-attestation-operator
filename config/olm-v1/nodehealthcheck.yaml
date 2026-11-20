@@ -1,0 +1,52 @@
+# Example NodeHealthCheck watching the attestation-operator's signal.
+#
+# The attestation-operator's contract ends at the AttestationFailed node
+# condition: it emits the signal, it does not remediate. Remediation
+# belongs to Workload Availability — the Node Health Check Operator
+# reacting to the condition with a remediation template of the admin's
+# choosing (Self Node Remediation, Fence Agents Remediation, ...).
+#
+# NOTE: the NodeHealthCheck validating webhook requires both a
+# minHealthy/maxUnhealthy value and a remediation template — a purely
+# template-less "detection-only" CR is rejected. Two detection-only
+# options, both verified on a single-node cluster:
+#
+#   - reference a template of a kind nothing watches (e.g. a minimal
+#     inert CRD pair <Kind>Template/<Kind> with spec.template.spec: {});
+#     NHC detects and flags unhealthy nodes, and no remediation software
+#     exists to act on the created CRs;
+#   - keep a real template but hold the check with spec.pauseRequests
+#     once detection is verified.
+#
+# On a single-node cluster, minHealthy: 51% additionally stops remediation
+# processing whenever the only node is unhealthy (0 healthy < 51%).
+#
+# For NVL72-style racks, tray-level granularity starts at one
+# AttestationTarget per rack, with the failing components named in the
+# condition's message.
+apiVersion: remediation.medik8s.io/v1alpha1
+kind: NodeHealthCheck
+metadata:
+  name: attestation-failed
+  namespace: openshift-workload-availability
+spec:
+  minHealthy: 51%
+  # hold the check paused (e.g. after verifying detection) with:
+  # pauseRequests:
+  #   - detection-verified
+  selector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/worker
+        operator: Exists
+  unhealthyConditions:
+    - type: AttestationFailed
+      status: "True"
+      duration: 60s
+  # The remediation template of the admin's choosing; the example below is
+  # the Self Node Remediation resource-deletion strategy (requires the SNR
+  # operator and its template to exist).
+  remediationTemplate:
+    apiVersion: self-node-remediation.medik8s.io/v1alpha1
+    kind: SelfNodeRemediationTemplate
+    name: self-node-remediation-resource-deletion-template
+    namespace: openshift-workload-availability

@@ -592,6 +592,9 @@ func toAttestationVerifierStatus(a *verifier.Attestation) *attestationv1alpha1.V
 	status := &attestationv1alpha1.VerifierStatus{
 		AttestationStage:      a.Stage,
 		AttestationEvaluation: a.Evaluation,
+		// NOTE: the v3 API reports only an attestation-level verdict; the
+		// component list names the attested components, not the failing ones
+		AttestationComponents: a.Components,
 	}
 
 	var received *metav1.Time

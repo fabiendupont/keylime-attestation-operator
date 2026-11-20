@@ -56,7 +56,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-11-20T14:41:44Z"
+    createdAt: "2026-11-20T15:27:31Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: attestation-operator.v0.2.0
@@ -101,11 +101,26 @@ spec:
         - apiGroups:
           - ""
           resources:
+          - events
+          verbs:
+          - create
+          - patch
+        - apiGroups:
+          - ""
+          resources:
+          - nodes
           - pods
           verbs:
           - get
           - list
           - watch
+        - apiGroups:
+          - ""
+          resources:
+          - nodes/status
+          verbs:
+          - get
+          - patch
         - apiGroups:
           - apps
           resources:

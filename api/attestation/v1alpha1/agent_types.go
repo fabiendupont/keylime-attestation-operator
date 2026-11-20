@@ -205,6 +205,11 @@ type VerifierStatus struct {
 	// state as reported by the v2 polling API.
 	AttestationStage          string             `json:"attestationStage,omitempty"`
 	AttestationEvaluation     string             `json:"attestationEvaluation,omitempty"`
+	// AttestationComponents lists the component IDs covered by the latest
+	// out-of-band attestation, from the evidence items' data.meta.component_id.
+	// The v3 API reports only an attestation-level verdict, so these are the
+	// attested components, not the failing ones.
+	AttestationComponents     []string           `json:"attestationComponents,omitempty"`
 	V                         []byte             `json:"v,omitempty"`
 	TPMPolicy                 *TPMPolicy         `json:"tpmPolicy,omitempty"`
 	VTPMPolicy                *TPMPolicy         `json:"vtpmPolicy,omitempty"`

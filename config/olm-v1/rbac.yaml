@@ -148,6 +148,23 @@ rules:
       - get
       - list
       - watch
+  # The operator sets/clears the AttestationFailed node condition on the
+  # nodes a target maps to (cluster-scoped nodes/status patch).
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/status
+    verbs:
+      - get
+      - patch
   - apiGroups:
       - attestation.keylime.dev
     resources:

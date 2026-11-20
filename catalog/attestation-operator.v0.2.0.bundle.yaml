@@ -8,7 +8,7 @@
 schema: olm.bundle
 name: attestation-operator.v0.2.0
 package: attestation-operator
-image: quay.io/fdupont-redhat/attestation-operator-bundle@sha256:976ab3cb30cb34b5dcbbbf9b10a1573fc07b98d03fc0fbac435dca2d078f3a6b
+image: quay.io/fdupont-redhat/attestation-operator-bundle@sha256:c52c712b509d2dd6c3850de99be2e7c6ae31079e4f8b623d1335fa16c453c68f
 properties:
   - type: olm.package
     value:

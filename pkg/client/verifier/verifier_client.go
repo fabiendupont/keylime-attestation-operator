@@ -650,12 +650,33 @@ type Attestation struct {
 	Evaluation string
 	// EvidenceReceivedAt is the time the verifier received the latest evidence
 	EvidenceReceivedAt *time.Time
+	// Components lists the component IDs of the evidence items (their
+	// data.meta.component_id), naming the components the attestation covers.
+	// NOTE: the v3 API only reports an attestation-level verdict, not
+	// per-component ones.
+	Components []string
+}
+
+// evidenceItemDataMeta is the "meta" object of an evidence item's data.
+type evidenceItemDataMeta struct {
+	ComponentID string `json:"component_id"`
+}
+
+// evidenceItemData is the "data" object of an evidence item.
+type evidenceItemData struct {
+	Meta evidenceItemDataMeta `json:"meta"`
+}
+
+// evidenceItem is one entry of the attestation's "evidence" array.
+type evidenceItem struct {
+	Data evidenceItemData `json:"data"`
 }
 
 type attestationAttributes struct {
-	Stage              string `json:"stage"`
-	Evaluation         string `json:"evaluation"`
-	EvidenceReceivedAt string `json:"evidence_received_at"`
+	Stage              string         `json:"stage"`
+	Evaluation         string         `json:"evaluation"`
+	EvidenceReceivedAt string         `json:"evidence_received_at"`
+	Evidence           []evidenceItem `json:"evidence"`
 }
 
 type getAttestation struct {
@@ -710,6 +731,14 @@ func (c *verifierClient) GetLatestAttestation(ctx context.Context, uuid string) 
 			return nil, fmt.Errorf("attestation evidence_received_at parsing: %w", err)
 		}
 		attestation.EvidenceReceivedAt = &t
+	}
+
+	// The evidence items' component IDs (data.meta.component_id): the
+	// components the attestation covers
+	for _, item := range resp.Data.Attributes.Evidence {
+		if id := item.Data.Meta.ComponentID; id != "" {
+			attestation.Components = append(attestation.Components, id)
+		}
 	}
 
 	return attestation, nil

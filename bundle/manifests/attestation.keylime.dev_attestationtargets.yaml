@@ -30,6 +30,9 @@ spec:
     - jsonPath: .status.attestationEvaluation
       name: Evaluation
       type: string
+    - jsonPath: .status.conditions[?(@.type=="AttestationHealthy")].status
+      name: Healthy
+      type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
@@ -125,8 +128,7 @@ spec:
                   ComponentIntegrity IDs of the BMC. An empty list means all
                   SPDM-capable components discovered on the BMC.
                   NOTE: the collector image currently attests all discovered components;
-                  enforcing this filter requires a collector update (planned for the
-                  node-conditions phase of the redesign).
+                  enforcing this filter requires a collector update.
                 items:
                   type: string
                 type: array
@@ -145,6 +147,18 @@ spec:
                   Keylime CR in the namespace is used (and an error is reported if there
                   are none or several).
                 type: string
+              nodes:
+                description: |-
+                  Nodes is a manual node mapping fallback, for clusters without the
+                  MachineAPI (e.g. a management cluster attesting externally-managed
+                  bare metal): the node conditions of the attestation-failure signal
+                  are set on the listed nodes when the BaremetalHost mapping cannot
+                  resolve any node. It takes effect only when the MachineAPI mapping
+                  yields no nodes.
+                items:
+                  type: string
+                minItems: 1
+                type: array
               spdmCertChain:
                 description: |-
                   SPDMCertChain optionally references the device's SPDM certificate
@@ -166,14 +180,20 @@ spec:
                 - key
                 - secretRef
                 type: object
+              staleThresholdSeconds:
+                description: |-
+                  StaleThresholdSeconds is how old the agent's last successful
+                  attestation may be before the target is considered unhealthy (a dead
+                  collector silently means no attestation, which must not read as
+                  healthy). When unset it defaults to 3x IntervalSeconds.
+                format: int32
+                minimum: 1
+                type: integer
             required:
             - bmc
             type: object
           status:
-            description: |-
-              AttestationTargetStatus defines the observed state of AttestationTarget.
-              The per-component and per-tray detail is deliberately deferred to the
-              node-conditions phase of the redesign.
+            description: AttestationTargetStatus defines the observed state of AttestationTarget.
             properties:
               agentPhase:
                 description: |-
@@ -197,6 +217,18 @@ spec:
                   attestation as reported by the verifier's v3 push-mode attestation
                   API (e.g. verification_complete / pass).
                 type: string
+              components:
+                description: |-
+                  Components lists the component IDs (Redfish ComponentIntegrity IDs)
+                  covered by the agent's latest attestation, from the evidence items'
+                  data.meta.component_id. NOTE: the verifier's v3 API only reports an
+                  attestation-level verdict; per-component verdicts are not available
+                  there (a verifier-side per-evidence-item result is the recommended
+                  follow-up), so this list names the attested components, not the
+                  failing ones.
+                items:
+                  type: string
+                type: array
               conditions:
                 description: Conditions represent the readiness of the collector and
                   of the target.
@@ -279,15 +311,21 @@ spec:
                     type: boolean
                   nodeRefs:
                     description: |-
-                      NodeRefs lists the BaremetalHosts whose BMC address matches the
-                      target's BMC host (empty if none match).
+                      NodeRefs lists the resolved node references: for the MachineAPI
+                      source, the BaremetalHosts whose BMC address matches the target's
+                      BMC host and the nodes they provisioned; for the Manual source, the
+                      admin-provided node names (empty when none match).
                     items:
                       description: |-
-                        AttestationNodeRef records a BaremetalHost matched to the target's BMC,
-                        and the node it provisioned when known.
+                        AttestationNodeRef records a node the target's attestation-failure
+                        signal applies to: a BaremetalHost matched to the target's BMC and the
+                        node it provisioned (MachineAPI source), or an admin-provided node name
+                        (Manual source, BaremetalHost empty).
                       properties:
                         baremetalHost:
-                          description: BaremetalHost is the name of the matched BaremetalHost.
+                          description: |-
+                            BaremetalHost is the name of the matched BaremetalHost (MachineAPI
+                            source only; empty for manual node references).
                           type: string
                         node:
                           description: |-
@@ -300,6 +338,13 @@ spec:
                     type: array
                   reason:
                     description: Reason explains why the mapping is unavailable.
+                    type: string
+                  source:
+                    description: |-
+                      Source records how the mapped nodes were resolved:
+                      "MachineAPI" (a BaremetalHost matched the target's BMC) or
+                      "Manual" (the admin-provided spec.nodes fallback). Empty when no
+                      mapping is available.
                     type: string
                 required:
                 - available

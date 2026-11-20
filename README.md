@@ -376,3 +376,75 @@ global:
     agent:
       developer: true
 ```
+
+## Out-of-band attestation signals and node health
+
+The `AttestationTarget` CR drives the out-of-band (SPDM/Redfish) attestation
+of a machine's BMC: the operator provisions one collector Deployment per
+target, which pushes measurements to the verifier of the referenced `Keylime`
+CR. See `config/samples/` for a complete example.
+
+### Health computation
+
+A target is **unhealthy** when:
+
+- its agent's attestation evaluation is `fail` (the verifier's appraisal
+  rejected the measurements), or
+- it is **stale**: its `lastSuccessfulAttestation` is older than
+  `spec.staleThresholdSeconds` (default: 3x `spec.intervalSeconds`). A dead
+  collector silently means no attestation, which must not read as healthy.
+
+The target's health is recorded as the `AttestationHealthy` status condition
+(`status.components[]` additionally lists the components covered by the
+latest attestation, from the verifier's evidence items). NOTE: the verifier's
+v3 API only reports an attestation-level verdict; per-component verdicts are
+not available there, so a failing component set cannot be isolated from the
+API today.
+
+### Node conditions
+
+When a target with a resolved node mapping becomes unhealthy, the operator
+sets a node condition on every mapped node:
+
+```
+AttestationFailed=True  reason=AttestationEvaluationFailed|AttestationStale
+```
+
+with a message naming the `AttestationTarget`, its namespace and the failure
+mode; it is cleared (`AttestationFailed=False`, reason `AttestationPassed`)
+when the target is healthy again. A Kubernetes Event is emitted on the node
+whenever the condition changes. The node status is only patched when the
+condition actually changes, so the operator never fights other writers.
+
+Nodes are resolved with the following precedence:
+
+1. **MachineAPI**: BaremetalHosts whose BMC address matches the target's
+   BMC host (when the metal3 CRDs are installed) and the nodes they
+   provisioned;
+2. **manual fallback** (`spec.nodes`): a list of node names for clusters
+   without the MachineAPI — e.g. a management cluster attesting
+   externally-managed bare metal.
+
+The source used is recorded in `status.machineMapping.source`.
+
+### Remediation: the operator emits a signal, it does not remediate
+
+The operator's contract ends at the node condition. Remediation belongs to
+**Workload Availability**: install the Node Health Check Operator and create
+a `NodeHealthCheck` watching `AttestationFailed=True`, paired with a
+remediation template of the admin's choosing (Self Node Remediation, Fence
+Agents Remediation, ...):
+
+```bash
+oc apply -f config/olm-v1/nodehealthcheck.yaml
+```
+
+The shipped example pairs the check with the Self Node Remediation
+template; the NodeHealthCheck webhook requires a minHealthy/maxUnhealthy
+value and a remediation template, so a purely template-less
+detection-only CR is rejected — see the file's comments for the verified
+detection-only patterns (an inert template kind, or `spec.pauseRequests`). For NVL72-style
+racks, tray-level granularity starts at **one AttestationTarget per rack**,
+with the failing components named in the condition message (once the
+verifier reports per-evidence-item results) — enabling the admin to fence a
+single tray instead of the whole rack.

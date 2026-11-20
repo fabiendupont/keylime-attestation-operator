@@ -45,9 +45,24 @@ type AttestationTargetSpec struct {
 	// ComponentIntegrity IDs of the BMC. An empty list means all
 	// SPDM-capable components discovered on the BMC.
 	// NOTE: the collector image currently attests all discovered components;
-	// enforcing this filter requires a collector update (planned for the
-	// node-conditions phase of the redesign).
+	// enforcing this filter requires a collector update.
 	Components []string `json:"components,omitempty"`
+
+	// StaleThresholdSeconds is how old the agent's last successful
+	// attestation may be before the target is considered unhealthy (a dead
+	// collector silently means no attestation, which must not read as
+	// healthy). When unset it defaults to 3x IntervalSeconds.
+	//+kubebuilder:validation:Minimum=1
+	StaleThresholdSeconds *int32 `json:"staleThresholdSeconds,omitempty"`
+
+	// Nodes is a manual node mapping fallback, for clusters without the
+	// MachineAPI (e.g. a management cluster attesting externally-managed
+	// bare metal): the node conditions of the attestation-failure signal
+	// are set on the listed nodes when the BaremetalHost mapping cannot
+	// resolve any node. It takes effect only when the MachineAPI mapping
+	// yields no nodes.
+	//+kubebuilder:validation:MinItems=1
+	Nodes []string `json:"nodes,omitempty"`
 
 	// AgentUUID optionally pins the UUID of the agent this target feeds.
 	// If empty, a deterministic UUID (v5) derived from the target's
@@ -108,10 +123,13 @@ type CertChainSource struct {
 	Key string `json:"key"`
 }
 
-// AttestationNodeRef records a BaremetalHost matched to the target's BMC,
-// and the node it provisioned when known.
+// AttestationNodeRef records a node the target's attestation-failure
+// signal applies to: a BaremetalHost matched to the target's BMC and the
+// node it provisioned (MachineAPI source), or an admin-provided node name
+// (Manual source, BaremetalHost empty).
 type AttestationNodeRef struct {
-	// BaremetalHost is the name of the matched BaremetalHost.
+	// BaremetalHost is the name of the matched BaremetalHost (MachineAPI
+	// source only; empty for manual node references).
 	BaremetalHost string `json:"baremetalHost"`
 
 	// Node is the name of the node provisioned from the BaremetalHost, when
@@ -120,23 +138,30 @@ type AttestationNodeRef struct {
 }
 
 // MachineMappingStatus records the result of matching the target's BMC
-// against the BaremetalHosts of the cluster.
+// against the BaremetalHosts of the cluster, and how the nodes the
+// attestation-failure signal applies to were resolved.
 type MachineMappingStatus struct {
 	// Available is false when the mapping could not be computed, e.g.
 	// because the BaremetalHost CRDs are not installed on this cluster.
 	Available bool `json:"available"`
 
+	// Source records how the mapped nodes were resolved:
+	// "MachineAPI" (a BaremetalHost matched the target's BMC) or
+	// "Manual" (the admin-provided spec.nodes fallback). Empty when no
+	// mapping is available.
+	Source string `json:"source,omitempty"`
+
 	// Reason explains why the mapping is unavailable.
 	Reason string `json:"reason,omitempty"`
 
-	// NodeRefs lists the BaremetalHosts whose BMC address matches the
-	// target's BMC host (empty if none match).
+	// NodeRefs lists the resolved node references: for the MachineAPI
+	// source, the BaremetalHosts whose BMC address matches the target's
+	// BMC host and the nodes they provisioned; for the Manual source, the
+	// admin-provided node names (empty when none match).
 	NodeRefs []AttestationNodeRef `json:"nodeRefs,omitempty"`
 }
 
 // AttestationTargetStatus defines the observed state of AttestationTarget.
-// The per-component and per-tray detail is deliberately deferred to the
-// node-conditions phase of the redesign.
 type AttestationTargetStatus struct {
 	// Conditions represent the readiness of the collector and of the target.
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
@@ -162,6 +187,15 @@ type AttestationTargetStatus struct {
 	AttestationStage      string `json:"attestationStage,omitempty"`
 	AttestationEvaluation string `json:"attestationEvaluation,omitempty"`
 
+	// Components lists the component IDs (Redfish ComponentIntegrity IDs)
+	// covered by the agent's latest attestation, from the evidence items'
+	// data.meta.component_id. NOTE: the verifier's v3 API only reports an
+	// attestation-level verdict; per-component verdicts are not available
+	// there (a verifier-side per-evidence-item result is the recommended
+	// follow-up), so this list names the attested components, not the
+	// failing ones.
+	Components []string `json:"components,omitempty"`
+
 	// LastSuccessfulAttestation mirrors the agent's last successful
 	// attestation timestamp.
 	LastSuccessfulAttestation *metav1.Time `json:"lastSuccessfulAttestation,omitempty"`
@@ -183,6 +217,7 @@ type AttestationTargetStatus struct {
 //+kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.verifierState`
 //+kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.status.attestationStage`
 //+kubebuilder:printcolumn:name="Evaluation",type=string,JSONPath=`.status.attestationEvaluation`
+//+kubebuilder:printcolumn:name="Healthy",type=string,JSONPath=`.status.conditions[?(@.type=="AttestationHealthy")].status`
 //+kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 
 // AttestationTarget is the Schema for the attestationtargets API. It is the
