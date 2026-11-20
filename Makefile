@@ -11,8 +11,9 @@ BUILD_DIR := $(MKFILE_DIR)/build
 BUILD_ARTIFACTS_DIR := $(BUILD_DIR)/artifacts
 HACK_DIR := $(MKFILE_DIR)/hack
 
-# NOTE: this will change once we add the operator
-VERSION ?= latest
+# Current version of the operator. Must be a valid semver (e.g. v0.1.2) so
+# that it can be used for both the operator image and the OLM bundle.
+VERSION ?= 0.2.0
 
 GIT_COMMIT = $(shell git rev-parse HEAD)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "dirty" || echo "clean")
@@ -21,7 +22,7 @@ BUILD_DATE = $(shell date -u -Iseconds)
 DOCKER_BUILDX_FLAGS ?=
 #DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_PLATFORMS ?= linux/amd64
-DOCKER_NO_VERSION_TAG ?= quay.io/keylime/keylime_attestation_operator
+DOCKER_NO_VERSION_TAG ?= quay.io/fdupont-redhat/attestation-operator
 DOCKER_TAG ?= $(DOCKER_NO_VERSION_TAG):$(VERSION)
 DOCKER_BIN ?= docker
 
@@ -54,11 +55,10 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-# Bundle version does not accept "latest", it must contain something similar to vMajor.Minor.Patch
+# Bundle version does not accept "latest", it must contain something similar to vMajor.Minor.Patch.
+# It intentionally has no fallback: if VERSION is not a valid semver, generation fails loudly
+# instead of silently producing a mis-versioned CSV.
 BUNDLE_VERSION ?= $(VERSION)
-ifeq ($(BUNDLE_VERSION),latest)
-	BUNDLE_VERSION=$(HELM_CHART_CONTROLLER_VERSION)
-endif
 
 # Bundle related information
 # CHANNELS define the bundle channels used in the bundle.
@@ -75,7 +75,7 @@ endif
 # To re-generate a bundle for any other default channel without changing the default setup, you can:
 # - use the DEFAULT_CHANNEL as arg of the bundle target (e.g make bundle DEFAULT_CHANNEL=stable)
 # - use environment variables to overwrite this value (e.g export DEFAULT_CHANNEL="stable")
-DEFAULT_CHANNEL ?= stable
+DEFAULT_CHANNEL ?= alpha
 ifneq ($(origin DEFAULT_CHANNEL), undefined)
 BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
 endif
@@ -432,7 +432,7 @@ ifeq (,$(shell which opm 2>/dev/null))
 	set -e ;\
 	mkdir -p $(dir $(OPM)) ;\
 	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.74.0/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
 else
@@ -440,26 +440,50 @@ OPM = $(shell which opm)
 endif
 endif
 
-# A comma-separated list of bundle images (e.g. make catalog-build BUNDLE_IMGS=example.com/operator-bundle:v0.1.0,example.com/operator-bundle:v0.2.0).
-# These images MUST exist in a registry and be pull-able.
-BUNDLE_IMGS ?= $(BUNDLE_IMG)
+.PHONY: bundle-validate
+bundle-validate: operator-sdk ## Validate the OLM bundle in ./bundle.
+	$(OPERATOR_SDK) bundle validate ./bundle
 
-# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
-CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:v$(VERSION)
+##@ OLM v1 catalog (file-based catalog, served by catalogd via a ClusterCatalog)
 
-# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMGS to that image.
-ifneq ($(origin CATALOG_BASE_IMG), undefined)
-FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
-endif
+# Directory containing the catalog definitions for the attestation-operator package.
+FBC_DIR ?= catalog
 
-# Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
-# This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
-# https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
+# The image tag given to the resulting catalog image
+# (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
+CATALOG_IMG ?= $(DOCKER_NO_VERSION_TAG)-catalog:$(BUNDLE_VERSION)
+
+# opm is run from the official container image; the local source tree is
+# mounted at /work. --user root and the :Z volume flag are required on hosts
+# with SELinux enabled. Override OPM_CONTAINER_TOOL (e.g. docker) if podman
+# is not available.
+OPM_CONTAINER_TOOL ?= $(shell command -v podman 2>/dev/null || echo docker)
+OPM_IMAGE ?= quay.io/operator-framework/opm:v1.74.0
+OPM_RUN = $(OPM_CONTAINER_TOOL) run --rm --user root -v $(MKFILE_DIR):/work:Z -w /work $(OPM_IMAGE)
+
+.PHONY: catalog-validate
+catalog-validate: ## Validate the file-based catalog with opm.
+	$(OPM_RUN) validate $(FBC_DIR)
+
+# Build the file-based catalog (FBC) image for OLM v1 (ClusterCatalog). The
+# catalog.Dockerfile is generated with `opm generate dockerfile catalog`
+# and pre-populates the serve cache in a builder stage.
 .PHONY: catalog-build
-catalog-build: opm ## Build a catalog image.
-	$(OPM) index add --container-tool docker --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+catalog-build: catalog-validate ## Build the catalog image.
+	$(DOCKER_BIN) build -f catalog.Dockerfile -t $(CATALOG_IMG) .
 
-# Push the catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push DOCKER_TAG=$(CATALOG_IMG)
+
+.PHONY: podman-catalog-build
+podman-catalog-build: ## Build the catalog image through podman.
+	DOCKER_BIN=podman $(MAKE) catalog-build
+
+.PHONY: podman-catalog-push
+podman-catalog-push: ## Push the catalog image through podman.
+	DOCKER_BIN=podman $(MAKE) catalog-push
+
+.PHONY: catalog-dockerfile
+catalog-dockerfile: ## Regenerate catalog.Dockerfile from the catalog directory.
+	$(OPM_RUN) generate dockerfile $(FBC_DIR)

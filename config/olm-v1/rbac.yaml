@@ -1,0 +1,203 @@
+# RBAC required to install the attestation-operator with OLM v1.
+#
+# Unlike OLM v0, OLM v1 does not generate the install-time identity: the
+# ClusterExtension's spec.serviceAccount.name must reference a pre-existing
+# ServiceAccount holding enough permissions to apply the bundle's content
+# (the CSV-generated ServiceAccount/RBAC, Deployment, Services and the CRD
+# are applied by operator-controller on its behalf). The operator's own
+# runtime RBAC is still generated from the CSV, so it does not need to be
+# reproduced here.
+#
+# NOTE: the ServiceAccount must NOT be named
+# attestation-operator-controller-manager: that ServiceAccount is created by
+# operator-controller from the CSV and must not pre-exist.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: attestation-operator-installer
+  namespace: keylime
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: attestation-operator-installer
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+      - services
+      - configmaps
+      - events
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+  # The operator's runtime permissions from the CSV. RBAC escalation
+  # prevention requires the install ServiceAccount to hold these permissions
+  # itself: operator-controller grants them to the operator's generated
+  # ClusterRole on its behalf.
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - attestation.keylime.dev
+    resources:
+      - agents
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - attestation.keylime.dev
+    resources:
+      - agents/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - attestation.keylime.dev
+    resources:
+      - agents/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
+  # Namespace-scoped rules from the CSV (leader election, events), granted
+  # cluster-wide to keep the manifest single-purpose.
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  # operator-controller stores its installation state in Helm release
+  # secrets and sets ownerReferences with blockOwnerDeletion on the
+  # resources it applies (pointing at those secrets / the ClusterExtension).
+  # The installer therefore also needs update access to secrets and to the
+  # OLM v1 CRDs' finalizers to pass the blockOwnerDeletion admission check.
+  - apiGroups:
+      - olm.operatorframework.io
+    resources:
+      - clusterextensions
+      - clusterextensions/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: attestation-operator-installer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: attestation-operator-installer
+subjects:
+  - kind: ServiceAccount
+    name: attestation-operator-installer
+    namespace: keylime

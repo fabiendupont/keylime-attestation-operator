@@ -74,37 +74,44 @@ e) `make helm-undeploy` will remove the whole deployment
 
 ## Deploying a controller
 
-### Deployment/cleanup of the operator through operator-sdk
-Operator can be deployed with operator-sdk, as it has olm/bundle support.
-To do so, you will need `operator-sdk` to be installed.
-Follow next instructions to compile, upload and deploy through operator-sdk:
-* Compile controller, generate bundle and push it to registry:
+### Deployment/cleanup of the operator through OLM v1 (ClusterExtension)
+The operator is packaged for **OLM v1** (ClusterExtension + ClusterCatalog /
+catalogd), available on OpenShift 4.22+ / OLM 5.0. The bundle remains a
+registry+v1 bundle (CSV), served through a catalog image
+served from the `catalog/` directory instead of the deprecated sqlite index.
+OLM v0 installs (CatalogSource + Subscription) are no longer supported.
+
+To build and push the images:
 ```bash
-make docker-build docker-push DOCKER_TAG=quay.io/{quay_user}/attestation-operator:v0.1.0
-make bundle DOCKER_TAG=quay.io/{quay_user_here}/attestation-operator:v0.1.0
-make bundle-build bundle-push BUNDLE_IMG="quay.io/{quay_user}/attestation-operator-bundle:v0.1.0"
+make podman-build podman-push
+make podman-bundle-build podman-bundle-push
+make podman-catalog-build podman-catalog-push
 ```
-It is possible to generate controller and bundle through `podman`. To do so, previous steps must be
-replaced with appropriate podman rules:
+The bundle image (`...-bundle:v0.2.0`) and the catalog image
+(`...-catalog:v0.2.0`) are both defined in the
+`catalog/` directory; see [`config/olm-v1/`](config/olm-v1/README.md) for
+the install manifests and step-by-step instructions:
 ```bash
-make podman-build podman-push DOCKER_TAG=quay.io/{quay_user}/attestation-operator:v0.1.0
-make podman-bundle DOCKER_TAG=quay.io/{quay_user_here}/attestation-operator:v0.1.0
-make podman-bundle-build podman-bundle-push BUNDLE_IMG="quay.io/{quay_user}/attestation-operator-bundle:v0.1.0"
+oc apply -f config/olm-v1/clustercatalog.yaml
+oc -n keylime apply -f config/olm-v1/rbac.yaml
+oc apply -f config/olm-v1/clusterextension.yaml
 ```
-* Deploy through `operator-sdk` tool:
+Note that, unlike OLM v0, OLM v1 does not generate RBAC for the operator:
+the ServiceAccount referenced by the ClusterExtension (`rbac.yaml` above)
+must be created beforehand.
+
+To remove the operator:
 ```bash
-operator-sdk run bundle quay.io/{quay_user}/attestation-operator-bundle:v0.1.0
+oc delete clusterextension/attestation-operator
+oc delete clustercatalog/attestation-operator
+oc -n keylime delete -f config/olm-v1/rbac.yaml
 ```
-* In case operator needs to be deployed in a particular namespace, use `--namespace` tool:
+
+### Deployment of the operator through operator-sdk (development only)
+For quick development iterations (no OLM involved), the operator can also be
+run through `operator-sdk`:
 ```bash
 operator-sdk run bundle quay.io/{quay_user}/attestation-operator-bundle:v0.1.0 --namespace keylime
-```
-* For operator cleanup, just execute `cleanup` operator-sdk option:
-```bash
-operator-sdk cleanup attestation-operator
-```
-* In case a namespace was provided for deployment, it must be similarly used on cleanup:
-```bash
 operator-sdk cleanup attestation-operator --namespace keylime
 ```
 

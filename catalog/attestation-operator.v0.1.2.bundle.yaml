@@ -1,0 +1,18 @@
+# Bundle entry for attestation-operator v0.1.2.
+#
+# Points at the registry+v1 bundle image; the properties are the minimum
+# needed for OLM v1 resolution (package identity/version and provided GVK).
+schema: olm.bundle
+name: attestation-operator.v0.1.2
+package: attestation-operator
+image: quay.io/fdupont-redhat/attestation-operator-bundle:v0.1.2
+properties:
+  - type: olm.package
+    value:
+      packageName: attestation-operator
+      version: 0.1.2
+  - type: olm.gvk
+    value:
+      group: attestation.keylime.dev
+      kind: Agent
+      version: v1alpha1

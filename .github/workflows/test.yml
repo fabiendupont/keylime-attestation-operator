@@ -23,3 +23,20 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Validate OLM bundle
+        run: |
+          make operator-sdk
+          ./bin/operator-sdk bundle validate ./bundle
+
+      - name: Validate file-based catalog
+        run: make catalog-validate OPM_CONTAINER_TOOL=docker

@@ -1,0 +1,16 @@
+# OLM v1 (ClusterCatalog) pointing at the file-based catalog image for the
+# attestation-operator. catalogd unpacks the catalog and serves it to
+# ClusterExtensions.
+#
+# OLM v1 is available on OpenShift 4.22+ / OLM 5.0. OLM v0 (CatalogSource /
+# Subscription) installs are no longer supported.
+apiVersion: olm.operatorframework.io/v1
+kind: ClusterCatalog
+metadata:
+  name: attestation-operator
+spec:
+  source:
+    type: Image
+    image:
+      ref: quay.io/fdupont-redhat/attestation-operator-catalog:v0.2.0
+      pollIntervalMinutes: 10

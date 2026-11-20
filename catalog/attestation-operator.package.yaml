@@ -1,0 +1,8 @@
+# Catalog for the attestation-operator.
+#
+# This catalog is served by OLM v1 (catalogd) via a ClusterCatalog.
+# The bundle content itself (registry+v1 bundle with the CSV) is pulled
+# directly from the bundle image referenced by the olm.bundle entry below.
+schema: olm.package
+name: attestation-operator
+defaultChannel: alpha

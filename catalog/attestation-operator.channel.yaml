@@ -1,0 +1,9 @@
+# The "alpha" channel of the attestation-operator package.
+#
+schema: olm.channel
+package: attestation-operator
+name: alpha
+entries:
+  - name: attestation-operator.v0.1.2
+  - name: attestation-operator.v0.2.0
+    replaces: attestation-operator.v0.1.2

@@ -1,0 +1,27 @@
+# OLM v1 installation of the attestation-operator from the
+# "attestation-operator" ClusterCatalog (see clustercatalog.yaml).
+#
+# Prerequisites:
+#   - the ClusterCatalog is created and READY
+#   - the install ServiceAccount referenced by spec.serviceAccount.name
+#     exists and holds the permissions needed to apply the bundle content
+#     (see rbac.yaml) — OLM v1 does not provision this identity itself
+apiVersion: olm.operatorframework.io/v1
+kind: ClusterExtension
+metadata:
+  name: attestation-operator
+spec:
+  namespace: keylime
+  install:
+    preflight:
+      crdUpgradeSafety:
+        enforcement: None
+  serviceAccount:
+    name: attestation-operator-installer
+  source:
+    sourceType: Catalog
+    catalog:
+      packageName: attestation-operator
+      channels:
+        - alpha
+      upgradeConstraintPolicy: SelfCertified
