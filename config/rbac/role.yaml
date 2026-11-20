@@ -45,6 +45,7 @@ rules:
   - attestation.keylime.dev
   resources:
   - agents
+  - attestationtargets
   - keylimes
   verbs:
   - create
@@ -58,6 +59,7 @@ rules:
   - attestation.keylime.dev
   resources:
   - agents/finalizers
+  - attestationtargets/finalizers
   - keylimes/finalizers
   verbs:
   - update
@@ -65,8 +67,17 @@ rules:
   - attestation.keylime.dev
   resources:
   - agents/status
+  - attestationtargets/status
   - keylimes/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - metal3.io
+  resources:
+  - baremetalhosts
+  verbs:
+  - get
+  - list
+  - watch

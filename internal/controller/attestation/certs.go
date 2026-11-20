@@ -33,6 +33,7 @@ import (
 const (
 	caCommonName              = "attestation-operator-ca"
 	serverCommonName          = "keylime-server"
+	collectorClientCommonName = "keylime-collector"
 	certificateDuration       = 10 * 365 * 24 * time.Hour
 	caMaxSerial         int64 = 1 << 48
 )
@@ -118,6 +119,56 @@ func generateServerCert(caCertPEM, caKeyPEM []byte, dnsNames []string, ipAddress
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to marshal server key: %w", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return certPEM, keyPEM, nil
+}
+
+// generateClientCert creates a client certificate signed by the given CA,
+// carrying the identity of an operator-managed collector (organization,
+// organizational unit). The verifier and registrar trust the same CA by
+// construction, so this replaces the legacy client certificate dependency
+// for operator-managed collectors.
+func generateClientCert(caCertPEM, caKeyPEM []byte, organizationalUnit string) ([]byte, []byte, error) {
+	caCert, caKey, err := parseCAPEM(caCertPEM, caKeyPEM)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to generate client key: %w", err)
+	}
+
+	serial, err := rand.Int(rand.Reader, big.NewInt(caMaxSerial))
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to generate client serial: %w", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:         collectorClientCommonName,
+			Organization:       []string{"attestation-operator"},
+			OrganizationalUnit: []string{organizationalUnit},
+		},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(certificateDuration),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create client certificate: %w", err)
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to marshal client key: %w", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 

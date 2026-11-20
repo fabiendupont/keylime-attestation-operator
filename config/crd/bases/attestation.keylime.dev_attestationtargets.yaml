@@ -1,0 +1,317 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: attestationtargets.attestation.keylime.dev
+spec:
+  group: attestation.keylime.dev
+  names:
+    kind: AttestationTarget
+    listKind: AttestationTargetList
+    plural: attestationtargets
+    singular: attestationtarget
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.agentUUID
+      name: Agent UUID
+      type: string
+    - jsonPath: .status.agentPhase
+      name: Agent Phase
+      type: string
+    - jsonPath: .status.verifierState
+      name: State
+      type: string
+    - jsonPath: .status.attestationStage
+      name: Stage
+      type: string
+    - jsonPath: .status.attestationEvaluation
+      name: Evaluation
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          AttestationTarget is the Schema for the attestationtargets API. It is the
+          desired state for the out-of-band attestation of one machine: from it, the
+          operator provisions a collector Deployment (with a swtpm sidecar) that
+          polls the machine's BMC over Redfish and pushes SPDM measurements to the
+          verifier of the referenced Keylime CR.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              AttestationTargetSpec defines the desired state of AttestationTarget: the
+              out-of-band attestation of one machine whose BMC is polled by an
+              operator-provisioned collector Deployment.
+            properties:
+              agentUUID:
+                description: |-
+                  AgentUUID optionally pins the UUID of the agent this target feeds.
+                  If empty, a deterministic UUID (v5) derived from the target's
+                  namespaced name is used, so the identity of the machine is stable
+                  across collector reinstalls (the collector's swtpm identity is
+                  re-created from scratch on every reinstall).
+                pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+                type: string
+              bmc:
+                description: BMC describes the Redfish endpoint of the BMC of the
+                  machine to attest.
+                properties:
+                  caCertRef:
+                    description: |-
+                      CACertRef optionally references a secret or configmap holding the CA
+                      certificate to verify the BMC's TLS certificate. Takes precedence
+                      over Insecure.
+                    properties:
+                      configMapName:
+                        description: ConfigMapName is the name of a configmap holding
+                          the referenced data.
+                        type: string
+                      key:
+                        description: Key is the key of the data inside the secret
+                          or configmap.
+                        type: string
+                      secretName:
+                        description: SecretName is the name of a secret holding the
+                          referenced data.
+                        type: string
+                    required:
+                    - key
+                    type: object
+                  credentialsSecretRef:
+                    description: |-
+                      CredentialsSecretRef is the name of a secret in the same namespace as
+                      the AttestationTarget holding the BMC's Redfish credentials, under the
+                      keys "username" and "password". If unset, the collector's defaults
+                      (empty credentials) are used.
+                    type: string
+                  host:
+                    description: Host is the host (with optional ":port") of the BMC's
+                      Redfish endpoint.
+                    type: string
+                  insecure:
+                    description: |-
+                      Insecure skips the verification of the BMC's TLS certificate
+                      (self-signed certificates, e.g. virtual BMCs in test setups).
+                    type: boolean
+                required:
+                - host
+                type: object
+              components:
+                description: |-
+                  Components optionally restricts attestation to the listed
+                  ComponentIntegrity IDs of the BMC. An empty list means all
+                  SPDM-capable components discovered on the BMC.
+                  NOTE: the collector image currently attests all discovered components;
+                  enforcing this filter requires a collector update (planned for the
+                  node-conditions phase of the redesign).
+                items:
+                  type: string
+                type: array
+              intervalSeconds:
+                default: 300
+                description: |-
+                  IntervalSeconds is the interval at which the collector attests the
+                  machine, in seconds.
+                format: int32
+                minimum: 1
+                type: integer
+              keylimeRef:
+                description: |-
+                  KeylimeRef is the name of the Keylime CR in the same namespace whose
+                  verifier and registrar the collector reports to. If empty, the single
+                  Keylime CR in the namespace is used (and an error is reported if there
+                  are none or several).
+                type: string
+              spdmCertChain:
+                description: |-
+                  SPDMCertChain optionally references the device's SPDM certificate
+                  chain blob (DMTF DSP0274, Base64 or raw) in a secret. It is used as a
+                  fallback when the BMC does not serve the chain alongside the signed
+                  measurements. If unset, the collector relies on the BMC providing the
+                  chain via the Redfish Certificate resource or an inline property.
+                properties:
+                  key:
+                    description: Key is the key of the certificate chain blob inside
+                      the secret.
+                    type: string
+                  secretRef:
+                    description: |-
+                      SecretRef is the name of a secret in the same namespace as the
+                      AttestationTarget holding the certificate chain blob.
+                    type: string
+                required:
+                - key
+                - secretRef
+                type: object
+            required:
+            - bmc
+            type: object
+          status:
+            description: |-
+              AttestationTargetStatus defines the observed state of AttestationTarget.
+              The per-component and per-tray detail is deliberately deferred to the
+              node-conditions phase of the redesign.
+            properties:
+              agentPhase:
+                description: |-
+                  AgentPhase mirrors the phase of the Agent CR (e.g. Registered,
+                  Verifying).
+                type: string
+              agentRef:
+                description: |-
+                  AgentRef is the name of the Agent CR this target feeds, once the
+                  collector has registered with the registrar.
+                type: string
+              agentUUID:
+                description: AgentUUID is the agent UUID the collector uses (explicit
+                  or derived).
+                type: string
+              attestationEvaluation:
+                type: string
+              attestationStage:
+                description: |-
+                  AttestationStage and AttestationEvaluation mirror the agent's latest
+                  attestation as reported by the verifier's v3 push-mode attestation
+                  API (e.g. verification_complete / pass).
+                type: string
+              conditions:
+                description: Conditions represent the readiness of the collector and
+                  of the target.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastCollectionTimestamp:
+                description: |-
+                  LastCollectionTimestamp is when the controller last observed a new
+                  successful attestation from the collector.
+                format: date-time
+                type: string
+              lastSuccessfulAttestation:
+                description: |-
+                  LastSuccessfulAttestation mirrors the agent's last successful
+                  attestation timestamp.
+                format: date-time
+                type: string
+              machineMapping:
+                description: |-
+                  MachineMapping records the result of matching the target's BMC
+                  against the cluster's BaremetalHosts (when the CRDs are installed).
+                properties:
+                  available:
+                    description: |-
+                      Available is false when the mapping could not be computed, e.g.
+                      because the BaremetalHost CRDs are not installed on this cluster.
+                    type: boolean
+                  nodeRefs:
+                    description: |-
+                      NodeRefs lists the BaremetalHosts whose BMC address matches the
+                      target's BMC host (empty if none match).
+                    items:
+                      description: |-
+                        AttestationNodeRef records a BaremetalHost matched to the target's BMC,
+                        and the node it provisioned when known.
+                      properties:
+                        baremetalHost:
+                          description: BaremetalHost is the name of the matched BaremetalHost.
+                          type: string
+                        node:
+                          description: |-
+                            Node is the name of the node provisioned from the BaremetalHost, when
+                            it could be determined.
+                          type: string
+                      required:
+                      - baremetalHost
+                      type: object
+                    type: array
+                  reason:
+                    description: Reason explains why the mapping is unavailable.
+                    type: string
+                required:
+                - available
+                type: object
+              verifierState:
+                description: |-
+                  VerifierState mirrors the agent's operational state in the verifier
+                  (e.g. GET_QUOTE, quoting).
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

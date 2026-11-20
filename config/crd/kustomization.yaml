@@ -4,6 +4,7 @@
 resources:
 - bases/attestation.keylime.dev_agents.yaml
 - bases/attestation.keylime.dev_keylimes.yaml
+- bases/attestation.keylime.dev_attestationtargets.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

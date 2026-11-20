@@ -131,6 +131,26 @@ rules:
   - apiGroups:
       - attestation.keylime.dev
     resources:
+      - attestationtargets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - metal3.io
+    resources:
+      - baremetalhosts
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - attestation.keylime.dev
+    resources:
       - agents/finalizers
       - keylimes/finalizers
     verbs:
@@ -138,8 +158,15 @@ rules:
   - apiGroups:
       - attestation.keylime.dev
     resources:
+      - attestationtargets/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - attestation.keylime.dev
+    resources:
       - agents/status
       - keylimes/status
+      - attestationtargets/status
     verbs:
       - get
       - patch

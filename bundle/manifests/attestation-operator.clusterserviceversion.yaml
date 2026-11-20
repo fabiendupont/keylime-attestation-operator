@@ -21,6 +21,19 @@ metadata:
         },
         {
           "apiVersion": "attestation.keylime.dev/v1alpha1",
+          "kind": "AttestationTarget",
+          "metadata": {
+            "name": "attestationtarget-sample"
+          },
+          "spec": {
+            "bmc": {
+              "host": "bmc.example.com"
+            },
+            "intervalSeconds": 300
+          }
+        },
+        {
+          "apiVersion": "attestation.keylime.dev/v1alpha1",
           "kind": "Keylime",
           "metadata": {
             "name": "keylime"
@@ -43,7 +56,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-11-20T13:52:00Z"
+    createdAt: "2026-11-20T14:41:44Z"
     operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: attestation-operator.v0.2.0
@@ -54,6 +67,9 @@ spec:
     owned:
     - kind: Agent
       name: agents.attestation.keylime.dev
+      version: v1alpha1
+    - kind: AttestationTarget
+      name: attestationtargets.attestation.keylime.dev
       version: v1alpha1
     - kind: Keylime
       name: keylimes.attestation.keylime.dev
@@ -108,6 +124,7 @@ spec:
           - attestation.keylime.dev
           resources:
           - agents
+          - attestationtargets
           - keylimes
           verbs:
           - create
@@ -121,6 +138,7 @@ spec:
           - attestation.keylime.dev
           resources:
           - agents/finalizers
+          - attestationtargets/finalizers
           - keylimes/finalizers
           verbs:
           - update
@@ -128,11 +146,20 @@ spec:
           - attestation.keylime.dev
           resources:
           - agents/status
+          - attestationtargets/status
           - keylimes/status
           verbs:
           - get
           - patch
           - update
+        - apiGroups:
+          - metal3.io
+          resources:
+          - baremetalhosts
+          verbs:
+          - get
+          - list
+          - watch
         - apiGroups:
           - authentication.k8s.io
           resources:

@@ -1,0 +1,23 @@
+apiVersion: attestation.keylime.dev/v1alpha1
+kind: AttestationTarget
+metadata:
+  name: attestationtarget-sample
+spec:
+  # The BMC of the machine to attest (host[:port] of its Redfish endpoint).
+  bmc:
+    host: bmc.example.com
+    # insecure: true
+    # caCertRef:
+    #   secretName: bmc-ca
+    #   key: cacert.crt
+    # credentialsSecretRef: bmc-credentials
+  # The Keylime CR (same namespace) whose verifier and registrar the
+  # collector reports to. Defaults to the single Keylime CR in the namespace.
+  # keylimeRef: keylime
+  intervalSeconds: 300
+  # components:
+  #   - ComponentIntegrity-1
+  # agentUUID: 00000000-0000-5000-8000-000000000000
+  # spdmCertChain:
+  #   secretRef: device-cert-chain
+  #   key: cert-chain.blob

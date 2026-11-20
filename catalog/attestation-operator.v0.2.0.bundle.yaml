@@ -8,7 +8,7 @@
 schema: olm.bundle
 name: attestation-operator.v0.2.0
 package: attestation-operator
-image: quay.io/fdupont-redhat/attestation-operator-bundle@sha256:a0f60da313d3679d6fc4f518afdf8ed69c32034f68a5dbe8238006a9eccfdb21
+image: quay.io/fdupont-redhat/attestation-operator-bundle@sha256:976ab3cb30cb34b5dcbbbf9b10a1573fc07b98d03fc0fbac435dca2d078f3a6b
 properties:
   - type: olm.package
     value:
@@ -23,4 +23,9 @@ properties:
     value:
       group: attestation.keylime.dev
       kind: Keylime
+      version: v1alpha1
+  - type: olm.gvk
+    value:
+      group: attestation.keylime.dev
+      kind: AttestationTarget
       version: v1alpha1
